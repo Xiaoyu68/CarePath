@@ -501,6 +501,16 @@
       background: var(--green);
       font-size: 12px;
       font-weight: 760;
+      padding: 0 10px;
+      white-space: nowrap;
+    }
+
+    .score.mid {
+      background: var(--blue);
+    }
+
+    .score.low {
+      background: #94a3b8;
     }
 
     .opportunity p {
@@ -1491,6 +1501,15 @@
       "其他实体瘤": "solid tumor"
     };
 
+    const CITY_EN = {
+      "北京": "Beijing", "上海": "Shanghai", "广州": "Guangzhou", "深圳": "Shenzhen",
+      "杭州": "Hangzhou", "南京": "Nanjing", "武汉": "Wuhan", "成都": "Chengdu",
+      "重庆": "Chongqing", "天津": "Tianjin", "西安": "Xi'an", "长沙": "Changsha",
+      "郑州": "Zhengzhou", "苏州": "Suzhou", "沈阳": "Shenyang", "哈尔滨": "Harbin",
+      "济南": "Jinan", "青岛": "Qingdao", "福州": "Fuzhou", "厦门": "Xiamen",
+      "昆明": "Kunming", "合肥": "Hefei", "长春": "Changchun", "大连": "Dalian"
+    };
+
     function suggestTrialTerm(biomarkers) {
       const exact = ["KRAS G12C", "BRAF V600E", "EGFR T790M", "EGFR C797S"];
       const priority = ["EGFR", "ALK", "ROS1", "RET", "MET", "BRAF", "KRAS", "HER2", "NTRK", "BRCA", "PIK3CA", "MSI-H"];
@@ -1528,20 +1547,24 @@
           box.innerHTML = `<p class="trial-hint">没有找到符合条件的招募中试验。可尝试更换检索词或取消“只看中国”，也可以<a href="${webUrl}" target="_blank" rel="noopener">在 ClinicalTrials.gov 网站检索</a>。</p>`;
           return;
         }
+        const userCity = $("#city").value.trim();
+        const userCityEn = CITY_EN[userCity] || (/^[\x20-\x7e]+$/.test(userCity) ? userCity : "");
         box.innerHTML = studies.map(study => {
           const proto = study.protocolSection || {};
           const nct = proto.identificationModule?.nctId || "";
           const title = proto.identificationModule?.briefTitle || "（无标题）";
           const phases = (proto.designModule?.phases || []).join("/").replace(/PHASE(\d)/g, "$1 期").replace(/EARLY_1 期/, "早期 1 期").replace(/^NA$/, "期别不适用") || "期别未注明";
+          const lastUpdate = proto.statusModule?.lastUpdatePostDateStruct?.date || "";
           const locations = proto.contactsLocationsModule?.locations || [];
           const cnSites = locations.filter(site => /china/i.test(site.country || ""));
           const cnCities = [...new Set(cnSites.map(site => site.city).filter(Boolean))].slice(0, 4).join("、");
+          const localMatch = userCityEn && locations.some(site => new RegExp(userCityEn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(site.city || ""));
           return `<article class="opportunity">
             <div class="opportunity-top">
               <h4><a href="https://clinicaltrials.gov/study/${encodeURIComponent(nct)}" target="_blank" rel="noopener">${escapeHtml(nct)}</a> · ${escapeHtml(title)}</h4>
             </div>
-            <p>${escapeHtml(phases)} · 招募中 · 研究中心 ${locations.length} 个${cnSites.length ? `，中国 ${cnSites.length} 个（${escapeHtml(cnCities)}）` : "，未列出中国中心"}</p>
-            <div class="tag-row"><span class="tag blue">ClinicalTrials.gov 实时数据</span><span class="tag">需医生确认</span></div>
+            <p>${escapeHtml(phases)} · 招募中 · 研究中心 ${locations.length} 个${cnSites.length ? `，中国 ${cnSites.length} 个（${escapeHtml(cnCities)}）` : "，未列出中国中心"}${lastUpdate ? ` · 信息更新于 ${escapeHtml(lastUpdate)}` : ""}</p>
+            <div class="tag-row"><span class="tag blue">ClinicalTrials.gov 实时数据</span>${localMatch ? `<span class="tag">你所在城市（${escapeHtml(userCity)}）有研究中心</span>` : ""}<span class="tag">需医生确认</span></div>
           </article>`;
         }).join("") + `<p class="trial-hint" style="margin-top:10px">共 ${data.totalCount ?? studies.length} 项符合条件，当前显示前 ${studies.length} 项。<a href="${webUrl}" target="_blank" rel="noopener">在网站查看全部</a>。检索结果仅用于和医生讨论，不构成入组判断。</p>`;
       } catch (error) {
@@ -1639,21 +1662,25 @@
     }
 
     function renderOpportunities(filter) {
-      const visible = state.opportunities.filter(item => filter === "all" || item.type === filter);
-      $("#opportunitiesList").innerHTML = visible.map(item => `
+      const visible = state.opportunities
+        .filter(item => filter === "all" || item.type === filter)
+        .slice()
+        .sort((a, b) => b.score - a.score);
+      $("#opportunitiesList").innerHTML = visible.map(item => {
+        const level = item.score >= 80 ? ["优先讨论", ""] : item.score >= 60 ? ["可讨论", " mid"] : ["备选", " low"];
+        return `
         <article class="opportunity" data-type="${item.type}">
           <div class="opportunity-top">
             <h4>${escapeHtml(item.title)}</h4>
-            <span class="score" title="本地规则演示评分，不代表真实试验匹配度">演示 ${escapeHtml(item.score)}</span>
+            <span class="score${level[1]}" title="本地规则排序，不代表真实匹配度，最终需医生判断">${level[0]}</span>
           </div>
           <p>${escapeHtml(item.desc)}</p>
           <div class="tag-row">
             <span class="tag ${item.type === "trial" ? "blue" : item.type === "access" ? "amber" : ""}">${item.type === "trial" ? "临床试验" : item.type === "drug" ? "药物证据" : "申请路径"}</span>
-            <span class="tag amber">演示评分</span>
             <span class="tag">需医生确认</span>
           </div>
-        </article>
-      `).join("");
+        </article>`;
+      }).join("");
     }
 
     function familyTaskTemplate(city) {
