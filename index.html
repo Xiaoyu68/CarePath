@@ -1625,7 +1625,7 @@ JSON 结构：
       try {
         aiConfig = JSON.parse(localStorage.getItem(AI_STORAGE_KEY)) || null;
       } catch { aiConfig = null; }
-      const provider = aiConfig?.provider || "deepseek";
+      const provider = aiConfig?.provider || "site";
       $("#aiProvider").value = provider;
       $("#aiBaseUrl").value = aiConfig?.baseUrl ?? AI_PRESETS[provider].baseUrl;
       $("#aiModel").value = aiConfig?.model ?? AI_PRESETS[provider].model;
