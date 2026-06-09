@@ -1077,6 +1077,22 @@
             <div class="task-list" id="ngsList"></div>
           </div>
         </div>
+
+        <div class="panel" style="margin-top:18px">
+          <div class="panel-head">
+            <div>
+              <h3>看不懂的词？（AI 术语解释）</h3>
+              <small>报告或医生口中的任何术语，用大白话解释给你听。解释仅帮助理解，不构成诊疗建议。</small>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="task-add" style="margin-top:0">
+              <input id="termInput" placeholder="例如：寡进展、ctDNA、客观缓解率、骨扫描浓聚……">
+              <button class="btn" id="termBtn" type="button">解释</button>
+            </div>
+            <div class="task-list" id="termList" style="margin-top:12px"></div>
+          </div>
+        </div>
       </section>
 
       <section id="visit" class="section">
@@ -1684,6 +1700,12 @@ JSON 结构：
 - 绝不推荐具体药物、剂量或方案，不下诊断结论
 - 不确定的内容明说不确定，不编造`;
 
+    const TERM_SYSTEM = `你是医学术语翻译助手，任务是把术语解释成癌症患者家属能听懂的大白话。
+严格遵守：
+- 只输出 JSON：{"explain":"2-4句通俗解释，可用生活化比喻","ask":"如果这个概念和患者自身情况有关，建议问医生的一个问题；无关则空字符串"}
+- 不下诊断结论，不推荐治疗，不评价患者预后
+- 如果输入不是医学相关词汇，在 explain 里如实说明`;
+
     const BILINGUAL_SYSTEM = `你是医学资料整理助手，任务是根据给定病程资料生成简明病情摘要，中英文各一段。
 严格遵守：
 - 只输出 JSON：{"zh":"中文摘要","en":"English summary"}
@@ -1728,8 +1750,16 @@ JSON 结构：
       const params = new URLSearchParams({
         "query.cond": cond,
         "filter.overallStatus": "RECRUITING",
-        "pageSize": "8",
-        "countTotal": "true"
+        "pageSize": "50",
+        "countTotal": "true",
+        "fields": [
+          "protocolSection.identificationModule.nctId",
+          "protocolSection.identificationModule.briefTitle",
+          "protocolSection.designModule.phases",
+          "protocolSection.statusModule.lastUpdatePostDateStruct",
+          "protocolSection.eligibilityModule.eligibilityCriteria",
+          "protocolSection.contactsLocationsModule.locations"
+        ].join(",")
       });
       if (term) params.set("query.term", term);
       if (chinaOnly) params.set("query.locn", "China");
@@ -1742,35 +1772,65 @@ JSON 结构：
         const data = await res.json();
         const studies = data.studies || [];
         if (!studies.length) {
+          state.trialResults = [];
           box.innerHTML = `<p class="trial-hint">没有找到符合条件的招募中试验。可尝试更换检索词或取消“只看中国”，也可以<a href="${webUrl}" target="_blank" rel="noopener">在 ClinicalTrials.gov 网站检索</a>。</p>`;
           return;
         }
-        const userCity = $("#city").value.trim();
-        const userCityEn = CITY_EN[userCity] || (/^[\x20-\x7e]+$/.test(userCity) ? userCity : "");
-        state.trialResults = studies.map(study => {
-          const proto = study.protocolSection || {};
-          const locations = proto.contactsLocationsModule?.locations || [];
-          const cnSites = locations.filter(site => /china/i.test(site.country || ""));
-          return {
-            nct: proto.identificationModule?.nctId || "",
-            title: proto.identificationModule?.briefTitle || "（无标题）",
-            phases: (proto.designModule?.phases || []).join("/").replace(/PHASE(\d)/g, "$1 期").replace(/EARLY_1 期/, "早期 1 期").replace(/^NA$/, "期别不适用") || "期别未注明",
-            lastUpdate: proto.statusModule?.lastUpdatePostDateStruct?.date || "",
-            locationCount: locations.length,
-            cnCount: cnSites.length,
-            cnCities: [...new Set(cnSites.map(site => site.city).filter(Boolean))].slice(0, 4).join("、"),
-            localMatch: !!(userCityEn && locations.some(site => new RegExp(userCityEn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(site.city || ""))),
-            userCity,
-            criteria: proto.eligibilityModule?.eligibilityCriteria || "",
-            screening: null
-          };
-        });
-        state.trialMeta = { total: data.totalCount ?? studies.length, webUrl };
+        state.trialResults = mapTrialStudies(studies);
+        state.trialMeta = {
+          total: data.totalCount ?? studies.length,
+          webUrl,
+          baseParams: params.toString(),
+          nextPageToken: data.nextPageToken || "",
+          loadingMore: false
+        };
         renderTrialResults();
       } catch (error) {
         box.innerHTML = `<p class="trial-hint">检索失败（${escapeHtml(error.message)}）。中国大陆网络环境可能无法直连 ClinicalTrials.gov 接口，可<a href="${webUrl}" target="_blank" rel="noopener">尝试直接打开网站</a>，或换网络后重试。</p>`;
       } finally {
         btn.disabled = false;
+      }
+    }
+
+    function mapTrialStudies(studies) {
+      const userCity = $("#city").value.trim();
+      const userCityEn = CITY_EN[userCity] || (/^[\x20-\x7e]+$/.test(userCity) ? userCity : "");
+      return studies.map(study => {
+        const proto = study.protocolSection || {};
+        const locations = proto.contactsLocationsModule?.locations || [];
+        const cnSites = locations.filter(site => /china/i.test(site.country || ""));
+        return {
+          nct: proto.identificationModule?.nctId || "",
+          title: proto.identificationModule?.briefTitle || "（无标题）",
+          phases: (proto.designModule?.phases || []).join("/").replace(/PHASE(\d)/g, "$1 期").replace(/EARLY_1 期/, "早期 1 期").replace(/^NA$/, "期别不适用") || "期别未注明",
+          lastUpdate: proto.statusModule?.lastUpdatePostDateStruct?.date || "",
+          locationCount: locations.length,
+          cnCount: cnSites.length,
+          cnCities: [...new Set(cnSites.map(site => site.city).filter(Boolean))].slice(0, 4).join("、"),
+          localMatch: !!(userCityEn && locations.some(site => new RegExp(userCityEn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(site.city || ""))),
+          userCity,
+          criteria: proto.eligibilityModule?.eligibilityCriteria || "",
+          screening: null
+        };
+      });
+    }
+
+    async function loadMoreTrials() {
+      const meta = state.trialMeta;
+      if (!meta?.nextPageToken || meta.loadingMore) return;
+      meta.loadingMore = true;
+      renderTrialResults();
+      try {
+        const res = await fetch("https://clinicaltrials.gov/api/v2/studies?" + meta.baseParams + "&pageToken=" + encodeURIComponent(meta.nextPageToken));
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        state.trialResults = state.trialResults.concat(mapTrialStudies(data.studies || []));
+        meta.nextPageToken = data.nextPageToken || "";
+      } catch (error) {
+        setStatus(`加载更多失败（${error.message}），可重试。`);
+      } finally {
+        meta.loadingMore = false;
+        renderTrialResults();
       }
     }
 
@@ -1786,7 +1846,9 @@ JSON 结构：
           ${screeningHtml(item, index)}
           <div class="tag-row"><span class="tag blue">ClinicalTrials.gov 实时数据</span>${item.localMatch ? `<span class="tag">你所在城市（${escapeHtml(item.userCity)}）有研究中心</span>` : ""}<span class="tag">需医生确认</span></div>
         </article>`).join("")
-        + `<p class="trial-hint" style="margin-top:10px">共 ${state.trialMeta.total} 项符合条件，当前显示前 ${items.length} 项。<a href="${state.trialMeta.webUrl}" target="_blank" rel="noopener">在网站查看全部</a>。${aiEnabled() ? `<button class="btn subtle" id="screenAllBtn" type="button" style="margin:0 6px">AI 初筛全部</button>` : ""}检索结果与初筛仅用于和医生讨论，不构成入组判断。</p>`;
+        + `<p class="trial-hint" style="margin-top:10px">已显示 ${items.length} / 共 ${state.trialMeta.total} 项${state.trialMeta.nextPageToken
+            ? `<button class="btn subtle" id="loadMoreTrialsBtn" type="button" style="margin:0 6px"${state.trialMeta.loadingMore ? " disabled" : ""}>${state.trialMeta.loadingMore ? "加载中……" : "加载更多"}</button>`
+            : "（已全部显示）"}<a href="${state.trialMeta.webUrl}" target="_blank" rel="noopener" style="margin-left:6px">在网站查看</a>。${aiEnabled() ? `<button class="btn subtle" id="screenAllBtn" type="button" style="margin:0 6px">AI 初筛已显示的全部</button>` : ""}检索结果与初筛仅用于和医生讨论，不构成入组判断。</p>`;
     }
 
     function screeningHtml(item, index) {
@@ -1948,6 +2010,7 @@ JSON 结构：
       renderOpportunities("all");
       renderNgs();
       renderBilingual();
+      renderTerms();
       if (!state.familyTasks || !state.familyTasks.length) state.familyTasks = familyTaskTemplate(city);
       renderFamilyTasks();
       renderLetter(cancerType, stage, biomarkers, state.questions, profile);
@@ -1991,6 +2054,49 @@ JSON 结构：
           <span>可以问医生：${escapeHtml(item.ask || "")}</span>
         </div></div>
       `).join("") + `<p class="trial-hint" style="margin-top:8px">AI 生成内容，仅用于理解资料和准备沟通，不构成用药建议，需医生确认。</p>`;
+    }
+
+    async function explainTerm() {
+      const term = $("#termInput").value.trim();
+      if (!term) { setStatus("请先输入想了解的词。"); return; }
+      if (!aiEnabled()) { setStatus("请先在上方“AI 智能解析”里完成配置。"); return; }
+      $("#termBtn").disabled = true;
+      state.terms = state.terms || [];
+      state.terms.unshift({ term, loading: true });
+      renderTerms();
+      try {
+        const parsed = await aiJson([
+          { role: "system", content: TERM_SYSTEM },
+          { role: "user", content: `患者背景：${$("#cancerType").value}${state.profile?.treatmentLines ? "，" + state.profile.treatmentLines : ""}。\n请解释这个词：${term}` }
+        ]);
+        if (!parsed.explain) throw new Error("返回结构不完整");
+        state.terms[0] = { term, explain: String(parsed.explain), ask: String(parsed.ask || "") };
+        $("#termInput").value = "";
+      } catch (error) {
+        state.terms[0] = { term, error: error.message };
+      } finally {
+        $("#termBtn").disabled = false;
+        renderTerms();
+      }
+    }
+
+    function renderTerms() {
+      const box = $("#termList");
+      if (!box) return;
+      const items = state.terms || [];
+      if (!items.length) {
+        box.innerHTML = `<p class="trial-hint">${aiEnabled() ? "输入报告里看不懂的词，回车或点“解释”。" : "需先在上方“AI 智能解析”里完成配置后使用。"}</p>`;
+        return;
+      }
+      box.innerHTML = items.map(item => {
+        if (item.loading) return `<div class="task"><div class="task-main"><strong>${escapeHtml(item.term)}</strong><span>解释生成中……</span></div></div>`;
+        if (item.error) return `<div class="task"><div class="task-main"><strong>${escapeHtml(item.term)}</strong><span>解释失败（${escapeHtml(item.error)}），可重新提交。</span></div></div>`;
+        return `<div class="task"><div class="task-main">
+          <strong>${escapeHtml(item.term)}</strong>
+          <span>${escapeHtml(item.explain)}</span>
+          ${item.ask ? `<span>可以问医生：${escapeHtml(item.ask)}</span>` : ""}
+        </div></div>`;
+      }).join("");
     }
 
     async function generateBilingual() {
@@ -2399,6 +2505,10 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
     $("#trialSearchBtn").addEventListener("click", searchTrials);
     $("#ngsBtn").addEventListener("click", generateNgs);
     $("#bilingualBtn").addEventListener("click", generateBilingual);
+    $("#termBtn").addEventListener("click", explainTerm);
+    $("#termInput").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") explainTerm();
+    });
 
     $("#trialResults").addEventListener("click", (event) => {
       const screenBtn = event.target.closest("[data-screen-idx]");
@@ -2406,12 +2516,19 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
         aiScreenTrial(Number(screenBtn.dataset.screenIdx));
         return;
       }
-      if (event.target.closest("#screenAllBtn")) screenAllTrials();
+      if (event.target.closest("#screenAllBtn")) {
+        const pending = (state.trialResults || []).filter(item => item.criteria && !item.screening).length;
+        if (pending > 20 && !window.confirm(`将对 ${pending} 条试验逐一调用 AI 初筛，耗时较长且消耗额度，确定继续？`)) return;
+        screenAllTrials();
+        return;
+      }
+      if (event.target.closest("#loadMoreTrialsBtn")) loadMoreTrials();
     });
 
     function refreshAiDependentUI() {
       renderNgs();
       renderBilingual();
+      renderTerms();
       if (state.trialResults?.length) renderTrialResults();
     }
 
