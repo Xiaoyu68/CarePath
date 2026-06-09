@@ -634,6 +634,77 @@
       color: #263244;
     }
 
+    .print-report {
+      display: none;
+    }
+
+    .report-title {
+      border-bottom: 2px solid #18212f;
+      padding-bottom: 10px;
+      margin-bottom: 14px;
+    }
+
+    .report-title h1 {
+      margin: 0 0 6px;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .report-title p {
+      margin: 0;
+      color: #4d596b;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .report-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .report-box {
+      border: 1px solid #cfd8e3;
+      border-radius: 6px;
+      padding: 9px;
+      break-inside: avoid;
+    }
+
+    .report-box h2 {
+      margin: 0 0 7px;
+      font-size: 13px;
+    }
+
+    .report-box p,
+    .report-box li {
+      color: #334155;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .report-box p {
+      margin: 0;
+    }
+
+    .report-box ul {
+      margin: 0;
+      padding-left: 16px;
+    }
+
+    .report-wide {
+      grid-column: 1 / -1;
+    }
+
+    .report-disclaimer {
+      border-top: 1px solid #cfd8e3;
+      margin-top: 10px;
+      padding-top: 8px;
+      color: #647084;
+      font-size: 10px;
+      line-height: 1.45;
+    }
+
     @media (max-width: 1020px) {
       .app { grid-template-columns: 1fr; }
       .sidebar {
@@ -664,12 +735,13 @@
     }
 
     @media print {
-      body { background: #fff; }
-      .sidebar, .topbar .actions, .upload, .tabs { display: none !important; }
-      .app { display: block; }
-      main { padding: 0; }
-      .panel { box-shadow: none; break-inside: avoid; }
-      .section { display: block; margin-bottom: 18px; }
+      @page { size: A4; margin: 12mm; }
+      body { background: #fff; color: #18212f; }
+      .app { display: none !important; }
+      .print-report {
+        display: block;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
     }
   </style>
 </head>
@@ -888,6 +960,8 @@
     </main>
   </div>
 
+  <section class="print-report" id="doctorReport" aria-label="医生版一页纸"></section>
+
   <script>
     const sampleText = `2025-08 病理：右肺上叶肺腺癌，免疫组化 TTF-1(+)，NapsinA(+)。
 2025-09 分期：胸部 CT 提示右肺上叶占位，纵隔淋巴结，骨扫描提示多发骨转移，临床 IV 期。
@@ -930,26 +1004,85 @@
 
     function detectBiomarkers(text) {
       const patterns = [
-        ["EGFR 19del", /EGFR|19del|exon19|19 deletion/i],
+        ["EGFR 19del", /EGFR.*(19del|exon\s*19|19 deletion|19外显子|19缺失)|(19del|exon\s*19|19 deletion|19外显子|19缺失).*EGFR/i],
+        ["EGFR L858R", /L858R/i],
+        ["EGFR T790M", /T790M/i],
+        ["EGFR C797S", /C797S/i],
+        ["EGFR exon20ins", /EGFR.*(exon\s*20|20ins|20插入|20外显子)|(exon\s*20|20ins|20插入|20外显子).*EGFR/i],
         ["TP53", /TP53/i],
         ["ALK 阴性", /ALK.*阴性|ALK negative/i],
+        ["ALK 融合", /ALK.*(融合|阳性|fusion|positive)|(融合|阳性|fusion|positive).*ALK/i],
         ["ROS1 阴性", /ROS1.*阴性|ROS1 negative/i],
+        ["ROS1 融合", /ROS1.*(融合|阳性|fusion|positive)|(融合|阳性|fusion|positive).*ROS1/i],
         ["RET 阴性", /RET.*阴性|RET negative/i],
+        ["RET 融合", /RET.*(融合|阳性|fusion|positive)|(融合|阳性|fusion|positive).*RET/i],
+        ["MET exon14", /MET.*(exon\s*14|14跳跃|14 skipping|ex14)|(exon\s*14|14跳跃|14 skipping|ex14).*MET/i],
+        ["MET 扩增", /MET.*(扩增|amplification|amp)|(扩增|amplification|amp).*MET/i],
+        ["BRAF V600E", /BRAF.*V600E|V600E.*BRAF/i],
+        ["KRAS G12C", /KRAS.*G12C|G12C.*KRAS/i],
+        ["HER2/ERBB2", /HER2|ERBB2/i],
+        ["NTRK 融合", /NTRK.*(融合|阳性|fusion)|(融合|阳性|fusion).*NTRK/i],
         ["MSI 稳定", /MSI.*稳定|MSS|MSI stable/i],
+        ["MSI-H", /MSI-H|MSI high|微卫星高度不稳定/i],
         ["TMB 低", /TMB.*低|TMB low/i],
+        ["TMB 高", /TMB.*高|TMB high/i],
         ["PD-L1 10%", /PD-L1|PDL1/i],
         ["CEA 升高", /CEA/i]
       ];
-      return patterns.filter(([, pattern]) => pattern.test(text)).map(([name]) => name);
+      return [...new Set(patterns.filter(([, pattern]) => pattern.test(text)).map(([name]) => name))];
     }
 
-    function buildMissing(text) {
+    function buildMolecularProfile(cancerType, biomarkers, text) {
+      const egfrItems = biomarkers.filter(item => item.startsWith("EGFR"));
+      const resistanceItems = biomarkers.filter(item => /T790M|C797S|MET|HER2|BRAF/.test(item));
+      const hasLungCancer = /肺|lung/i.test(cancerType + text);
+      const hasProgressSignal = /新发|进展|升至|增大|耐药|PD|复发/.test(text);
+      const hasResponseSignal = /缩小|缓解|下降|PR|部分缓解/.test(text);
+      const treatmentLines = /二线|2线|second/i.test(text)
+        ? "二线或后线"
+        : /三线|3线|third/i.test(text)
+          ? "三线或后线"
+          : /一线|1线|first|初治/i.test(text)
+            ? "一线"
+            : "治疗线数待确认";
+
+      const notes = [];
+      if (hasLungCancer && egfrItems.length) {
+        notes.push("已识别肺癌 EGFR 相关标志物，适合进入 EGFR 专属路径沟通。");
+      }
+      if (hasProgressSignal && egfrItems.length) {
+        notes.push("文本中出现进展或耐药线索，复诊时应重点确认是否需要 ctDNA 或组织活检。");
+      }
+      if (resistanceItems.length) {
+        notes.push(`已识别可能与耐药或后续路径相关的线索：${resistanceItems.join("，")}。`);
+      }
+      if (!egfrItems.length && hasLungCancer) {
+        notes.push("肺癌病例尚未识别到明确 EGFR 突变，需确认 NGS 是否完整覆盖常见驱动基因。");
+      }
+      if (hasResponseSignal && !hasProgressSignal) {
+        notes.push("文本中有疗效改善线索，重点是明确复查节奏和疗效维持标准。");
+      }
+
+      return {
+        egfrItems,
+        resistanceItems,
+        hasLungCancer,
+        hasProgressSignal,
+        hasResponseSignal,
+        treatmentLines,
+        notes
+      };
+    }
+
+    function buildMissing(text, profile) {
       const missing = [];
       if (!/PD-L1|PDL1/i.test(text)) missing.push(["补充 PD-L1", "若后续考虑免疫治疗或试验筛选，PD-L1 状态常被要求。"]);
       if (!/MSI|MSS|微卫星/i.test(text)) missing.push(["补充 MSI/MMR", "确认是否存在免疫治疗相关的泛癌种证据。"]);
       if (!/TMB/i.test(text)) missing.push(["确认 TMB", "部分免疫治疗或篮子试验会使用 TMB 作为筛选条件。"]);
       if (!/ctDNA|耐药|T790M|C797S|MET/i.test(text)) missing.push(["复查耐药机制", "进展时可与医生讨论 ctDNA 或组织活检，关注 EGFR、MET 等耐药机制。"]);
       if (!/增强|MRI|PET/i.test(text)) missing.push(["确认新发病灶性质", "新发肝/骨/脑病灶常需要增强影像帮助判断。"]);
+      if (profile?.hasLungCancer && !/脑|头颅|颅脑|brain/i.test(text)) missing.push(["确认脑部评估", "晚期肺癌复查或进展时，可与医生确认是否需要头颅 MRI 或脑转移筛查。"]);
+      if (profile?.egfrItems.length && profile.hasProgressSignal && !/组织活检|穿刺|活检|biopsy/i.test(text)) missing.push(["确认是否需要组织活检", "EGFR 靶向治疗后进展时，组织活检可能帮助区分耐药机制和病理转化，需医生判断是否可行。"]);
       return missing;
     }
 
@@ -981,16 +1114,16 @@
       });
     }
 
-    function buildOpportunities(cancerType, biomarkers, city) {
+    function buildOpportunities(cancerType, biomarkers, city, profile) {
       const hasEGFR = biomarkers.some(item => item.includes("EGFR"));
       const hasPDL1 = biomarkers.some(item => item.includes("PD-L1"));
       const list = [
         {
           type: "trial",
-          score: hasEGFR ? 86 : 66,
+          score: hasEGFR && profile?.hasProgressSignal ? 90 : hasEGFR ? 82 : 66,
           title: "EGFR 靶向治疗后进展相关临床试验预筛",
           desc: hasEGFR
-            ? `已识别 EGFR 19del，若影像确认进展，可重点检索 ${city} 及周边 EGFR 耐药、MET 扩增、双抗/ADC 相关研究。`
+            ? `已识别 ${profile.egfrItems.join("，")}。若影像确认进展，可重点检索 ${city} 及周边 EGFR 耐药、MET 扩增、双抗/ADC 相关研究。`
             : "需先确认驱动基因状态，再判断是否适合靶向耐药方向研究。"
         },
         {
@@ -1004,6 +1137,14 @@
           score: 74,
           title: "泛实体瘤篮子试验检索",
           desc: "按 NTRK、RET、MET、HER2、BRAF、MSI-H、TMB-H 等标志物进行二次检索，适合资料补齐后自动刷新。"
+        },
+        {
+          type: "drug",
+          score: profile?.resistanceItems.length ? 80 : 62,
+          title: "耐药机制证据整理",
+          desc: profile?.resistanceItems.length
+            ? `已识别 ${profile.resistanceItems.join("，")}，可整理成复诊追问，确认这些线索是否来自可靠检测并是否影响下一步讨论。`
+            : "若确认进展但尚未找到耐药机制，可与医生讨论 ctDNA、组织活检或更完整 NGS 的必要性。"
         },
         {
           type: "drug",
@@ -1027,7 +1168,7 @@
       return list;
     }
 
-    function buildQuestions(biomarkers, missing) {
+    function buildQuestions(biomarkers, missing, profile) {
       const questions = [
         ["这次 CT 是否已经达到疾病进展标准？", "请医生明确是稳定、寡进展，还是全身进展。"],
         ["新发肝脏病灶是否需要增强 MRI / PET-CT 确认？", "避免仅凭普通 CT 做重大治疗切换。"],
@@ -1036,14 +1177,23 @@
         ["目前是否有适合的临床试验？", "请医生基于癌种、突变、治疗线数和身体状态预筛。"],
         ["下一次复查的时间和指标是什么？", "明确 CT/MRI、肿瘤标志物、肝肾功能等。"]
       ];
+      if (profile?.egfrItems.length) {
+        questions.splice(2, 0,
+          [`本次病例是否仍按 EGFR 路径管理？`, `已识别 ${profile.egfrItems.join("，")}，请医生确认当前处于 ${profile.treatmentLines}，以及是否需要按 EGFR 靶向治疗后路径复盘。`],
+          ["如果确认耐药，优先排查哪些机制？", "可请医生明确是否重点关注 EGFR T790M/C797S、MET 扩增、HER2、BRAF、病理转化等线索。"]
+        );
+      }
+      if (profile?.hasProgressSignal) {
+        questions.push(["是否需要把既往 CT 做成影像变化表？", "对比原发灶、新发病灶、转移灶和肿瘤标志物，有助于判断进展模式。"]);
+      }
       missing.slice(0, 3).forEach(([title, desc]) => questions.push([title + "是否必要？", desc]));
       return questions;
     }
 
-    function buildPathway(cancerType, biomarkers, text, missing) {
+    function buildPathway(cancerType, biomarkers, text, missing, profile) {
       const hasEGFR = biomarkers.some(item => item.includes("EGFR"));
-      const hasProgressSignal = /新发|进展|升至|增大|耐药|PD|复发/.test(text);
-      const hasResponseSignal = /缩小|缓解|下降|PR|部分缓解/.test(text);
+      const hasProgressSignal = profile?.hasProgressSignal;
+      const hasResponseSignal = profile?.hasResponseSignal;
       const current = hasProgressSignal
         ? "当前需要确认是否进展、寡进展或耐药"
         : hasResponseSignal
@@ -1053,20 +1203,26 @@
       const branches = [
         {
           tone: "stable",
-          title: "如果影像仍稳定",
-          desc: "与医生确认是否继续当前治疗，并明确下次复查时间、影像项目和肿瘤标志物观察指标。",
+          title: hasEGFR ? "EGFR 路径：如果影像仍稳定" : "如果影像仍稳定",
+          desc: hasEGFR
+            ? "与医生确认是否继续当前 EGFR 路径管理，并明确下次 CT、脑部评估、肿瘤标志物和副作用复查节奏。"
+            : "与医生确认是否继续当前治疗，并明确下次复查时间、影像项目和肿瘤标志物观察指标。",
           tags: ["继续观察", "复查节奏", "需医生确认"]
         },
         {
           tone: "warning",
-          title: "如果只是单个或少数病灶进展",
-          desc: "与医生讨论是否属于寡进展，是否需要增强影像确认，以及局部治疗后继续原方案是否有讨论价值。",
+          title: hasEGFR ? "EGFR 路径：单个或少数病灶进展" : "如果只是单个或少数病灶进展",
+          desc: hasEGFR
+            ? "与医生讨论是否属于寡进展，是否需要增强影像确认，以及局部治疗后继续原 EGFR-TKI 是否有讨论价值。"
+            : "与医生讨论是否属于寡进展，是否需要增强影像确认，以及局部治疗后继续原方案是否有讨论价值。",
           tags: ["寡进展", "局部治疗讨论", "影像确认"]
         },
         {
           tone: "action",
-          title: "如果确认多处进展",
-          desc: "优先补齐耐药机制证据，带着既往治疗线数、NGS、影像变化表去讨论下一线标准治疗和临床试验预筛。",
+          title: hasEGFR ? "EGFR 路径：如果确认多处进展" : "如果确认多处进展",
+          desc: hasEGFR
+            ? "优先补齐耐药机制证据，带着治疗线数、EGFR 突变类型、既往用药、影像变化表去讨论下一步标准路径和 EGFR 耐药相关试验预筛。"
+            : "优先补齐耐药机制证据，带着既往治疗线数、NGS、影像变化表去讨论下一线标准治疗和临床试验预筛。",
           tags: ["耐药复查", "下一线治疗", "临床试验"]
         },
         {
@@ -1078,6 +1234,23 @@
           tags: hasEGFR ? ["EGFR", "ctDNA", "耐药机制"] : ["NGS", "补充检测", "资料缺口"]
         }
       ];
+
+      if (hasEGFR) {
+        branches.push(
+          {
+            tone: "warning",
+            title: "EGFR 路径：肿瘤标志物升高但影像未明确进展",
+            desc: "不要只凭单次数值决定换方案。可与医生讨论复查间隔、同一实验室复测、炎症或其他因素，以及是否需要提前影像复查。",
+            tags: ["CEA 变化", "影像复核", "避免过早切换"]
+          },
+          {
+            tone: "action",
+            title: "EGFR 路径：疑似耐药时的材料包",
+            desc: "整理既往 EGFR 突变类型、EGFR-TKI 用药起止时间、最佳疗效、进展部位、ctDNA/组织活检结果和副作用，方便医生快速判断下一步。",
+            tags: ["耐药材料包", "治疗线数", "NGS 摘要"]
+          }
+        );
+      }
 
       if (missing.length) {
         branches.push({
@@ -1104,13 +1277,15 @@
       const city = $("#city").value || "本地";
       const text = $("#recordText").value.trim() || sampleText;
       const biomarkers = detectBiomarkers(text);
-      const missing = buildMissing(text);
+      const profile = buildMolecularProfile(cancerType, biomarkers, text);
+      const missing = buildMissing(text, profile);
       const events = buildEvents(text);
-      const opportunities = buildOpportunities(cancerType, biomarkers, city);
-      const questions = buildQuestions(biomarkers, missing);
-      const pathway = buildPathway(cancerType, biomarkers, text, missing);
+      const opportunities = buildOpportunities(cancerType, biomarkers, city, profile);
+      const questions = buildQuestions(biomarkers, missing, profile);
+      const pathway = buildPathway(cancerType, biomarkers, text, missing, profile);
 
       state.biomarkers = biomarkers;
+      state.profile = profile;
       state.missing = missing;
       state.opportunities = opportunities;
       state.pathways = pathway.branches;
@@ -1126,6 +1301,7 @@
       $("#summary").innerHTML = `
         <div class="summary-block"><h4>核心病情</h4><p>${cancerType}，${stage}。已导入 ${events.length} 个关键节点，建议复诊时重点确认疗效状态和后续检测计划。</p></div>
         <div class="summary-block"><h4>分子标志物</h4><div class="tag-row">${renderTags(biomarkers.length ? biomarkers : ["待补齐 NGS/免疫指标"])}</div></div>
+        <div class="summary-block"><h4>EGFR 路径重点</h4><p>${escapeHtml(profile.notes.join(" ") || "尚未识别到 EGFR 专属路径线索，可先补齐 NGS、治疗线数和影像变化资料。")}</p></div>
         <div class="summary-block"><h4>当前重点</h4><p>${missing.length ? missing[0][1] : "资料较完整，可进入临床试验与二诊材料准备。"}</p></div>
       `;
 
@@ -1151,7 +1327,8 @@
       renderPathway(pathway);
       renderOpportunities("all");
       renderFamilyTasks(cancerType, stage, city);
-      renderLetter(cancerType, stage, biomarkers, questions);
+      renderLetter(cancerType, stage, biomarkers, questions, profile);
+      renderDoctorReport(cancerType, stage, city, biomarkers, profile, missing, events, questions, pathway);
     }
 
     function renderPathway(pathway) {
@@ -1199,12 +1376,13 @@
       `).join("");
     }
 
-    function renderLetter(cancerType, stage, biomarkers, questions) {
+    function renderLetter(cancerType, stage, biomarkers, questions, profile) {
       $("#doctorLetter").textContent = `医生您好：
 
 患者目前诊断为${cancerType}，${stage}。已整理病理、影像、基因检测和既往治疗记录，希望请您帮助判断当前疗效状态和下一步检查/治疗路径。
 
 已知关键标志物：${biomarkers.join("，") || "待补齐"}。
+${profile?.egfrItems?.length ? `\nEGFR 路径摘要：已识别 ${profile.egfrItems.join("，")}；当前治疗线数：${profile.treatmentLines}。希望重点确认是否存在进展/寡进展/耐药，以及是否需要补充 ctDNA、组织活检或影像复核。\n` : ""}
 
 本次想重点请教：
 ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\n")}
@@ -1212,10 +1390,68 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
 我们理解最终诊疗决定需由医生结合完整病历、影像原片和身体状态判断。此摘要仅用于提高沟通效率。`;
     }
 
+    function renderDoctorReport(cancerType, stage, city, biomarkers, profile, missing, events, questions, pathway) {
+      const today = new Date().toLocaleDateString("zh-CN");
+      const eventItems = events.slice(-6).map(([date, title, desc]) =>
+        `<li>${escapeHtml(date)} · ${escapeHtml(title)}：${escapeHtml(desc)}</li>`
+      ).join("");
+      const missingItems = (missing.length ? missing : [["暂无明显资料缺口", "可继续准备二诊摘要、影像变化表和复诊追问。"]])
+        .slice(0, 5)
+        .map(([title, desc]) => `<li><strong>${escapeHtml(title)}</strong>：${escapeHtml(desc)}</li>`)
+        .join("");
+      const questionItems = questions.slice(0, 8).map(([title]) => `<li>${escapeHtml(title)}</li>`).join("");
+      const pathItems = pathway.branches.slice(0, 4).map(branch =>
+        `<li><strong>${escapeHtml(branch.title)}</strong>：${escapeHtml(branch.desc)}</li>`
+      ).join("");
+      const profileSummary = profile.egfrItems.length
+        ? `已识别 ${profile.egfrItems.join("，")}；治疗线数：${profile.treatmentLines}。${profile.notes.join(" ")}`
+        : profile.notes.join(" ") || "尚未识别到 EGFR 专属路径线索，建议先确认 NGS、分期、治疗线数和影像变化。";
+
+      $("#doctorReport").innerHTML = `
+        <div class="report-title">
+          <h1>愈径 CarePath 医生版一页摘要</h1>
+          <p>生成日期：${escapeHtml(today)} · 城市：${escapeHtml(city || "未填写")} · 本摘要仅用于复诊/二诊沟通辅助</p>
+        </div>
+        <div class="report-grid">
+          <div class="report-box">
+            <h2>核心病情</h2>
+            <p>${escapeHtml(cancerType)}，${escapeHtml(stage)}。已整理 ${events.length} 个关键病程节点。</p>
+          </div>
+          <div class="report-box">
+            <h2>分子标志物</h2>
+            <p>${escapeHtml(biomarkers.join("，") || "待补齐 NGS/免疫指标")}</p>
+          </div>
+          <div class="report-box report-wide">
+            <h2>EGFR/路径重点</h2>
+            <p>${escapeHtml(profileSummary)}</p>
+          </div>
+          <div class="report-box report-wide">
+            <h2>近期病程时间线</h2>
+            <ul>${eventItems}</ul>
+          </div>
+          <div class="report-box">
+            <h2>资料缺口</h2>
+            <ul>${missingItems}</ul>
+          </div>
+          <div class="report-box">
+            <h2>本次复诊优先问题</h2>
+            <ul>${questionItems}</ul>
+          </div>
+          <div class="report-box report-wide">
+            <h2>可与医生讨论的路径分支</h2>
+            <ul>${pathItems}</ul>
+          </div>
+        </div>
+        <div class="report-disclaimer">
+          本摘要由愈径 CarePath 本地开源版根据用户输入资料整理生成，仅用于病历整理、公开证据检索和就医沟通辅助，不能替代医生诊断、治疗或用药决定。请以主治医生结合完整病历、影像原片、体能状态和检查结果后的判断为准。
+        </div>
+      `;
+    }
+
     function getCaseData() {
       return {
         app: "CarePath Open Source",
-        version: "0.2.0",
+        version: "0.3.0",
         savedAt: new Date().toISOString(),
         cancerType: $("#cancerType").value,
         stage: $("#stage").value,
@@ -1223,6 +1459,7 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
         recordText: $("#recordText").value,
         derived: {
           biomarkers: state.biomarkers,
+          profile: state.profile,
           missing: state.missing,
           opportunities: state.opportunities,
           pathways: state.pathways,
