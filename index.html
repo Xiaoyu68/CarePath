@@ -1785,6 +1785,7 @@ JSON 结构：
           return;
         }
         state.trialResults = mapTrialStudies(studies);
+        state.trialPage = 0;
         state.trialMeta = {
           total: data.totalCount ?? studies.length,
           webUrl,
@@ -1844,11 +1845,19 @@ JSON 结构：
       }
     }
 
+    const TRIAL_PAGE_SIZE = 10;
+
     function renderTrialResults() {
       const box = $("#trialResults");
       const items = state.trialResults || [];
       if (!items.length) return;
-      box.innerHTML = items.map((item, index) => `<article class="opportunity">
+      const page = state.trialPage || 0;
+      const start = page * TRIAL_PAGE_SIZE;
+      const totalPages = Math.max(1, Math.ceil(state.trialMeta.total / TRIAL_PAGE_SIZE));
+      const hasNext = (start + TRIAL_PAGE_SIZE < items.length) || !!state.trialMeta.nextPageToken;
+      box.innerHTML = items.slice(start, start + TRIAL_PAGE_SIZE).map((item, offset) => {
+        const index = start + offset;
+        return `<article class="opportunity">
           <div class="opportunity-top">
             <h4><a href="https://clinicaltrials.gov/study/${encodeURIComponent(item.nct)}" target="_blank" rel="noopener">${escapeHtml(item.nct)}</a> · ${escapeHtml(item.title)}</h4>
           </div>
@@ -1856,10 +1865,43 @@ JSON 结构：
           ${explainTrialHtml(item, index)}
           ${screeningHtml(item, index)}
           <div class="tag-row"><span class="tag blue">ClinicalTrials.gov 实时数据</span>${item.localMatch ? `<span class="tag">你所在城市（${escapeHtml(item.userCity)}）有研究中心</span>` : ""}<span class="tag">需医生确认</span></div>
-        </article>`).join("")
-        + `<p class="trial-hint" style="margin-top:10px">已显示 ${items.length} / 共 ${state.trialMeta.total} 项${state.trialMeta.nextPageToken
-            ? `<button class="btn subtle" id="loadMoreTrialsBtn" type="button" style="margin:0 6px"${state.trialMeta.loadingMore ? " disabled" : ""}>${state.trialMeta.loadingMore ? "加载中……" : "加载更多"}</button>`
-            : "（已全部显示）"}<a href="${state.trialMeta.webUrl}" target="_blank" rel="noopener" style="margin-left:6px">在网站查看</a>。${aiEnabled() ? `<button class="btn subtle" id="screenAllBtn" type="button" style="margin:0 6px">AI 初筛已显示的全部</button>` : ""}检索结果与初筛仅用于和医生讨论，不构成入组判断。</p>`;
+        </article>`;
+      }).join("")
+        + `<div class="tag-row" style="margin-top:12px;align-items:center">
+            <button class="btn subtle" id="trialPrevBtn" type="button"${page === 0 ? " disabled" : ""}>上一页</button>
+            <span class="trial-hint">第 ${page + 1} / ${totalPages} 页 · 共 ${state.trialMeta.total} 项</span>
+            <button class="btn subtle" id="trialNextBtn" type="button"${hasNext && !state.trialMeta.loadingMore ? "" : " disabled"}>${state.trialMeta.loadingMore ? "加载中……" : "下一页"}</button>
+            ${aiEnabled() ? `<button class="btn subtle" id="screenPageBtn" type="button">AI 初筛本页</button>` : ""}
+          </div>
+          <p class="trial-hint" style="margin-top:8px"><a href="${state.trialMeta.webUrl}" target="_blank" rel="noopener">在 ClinicalTrials.gov 查看</a>。检索结果与初筛仅用于和医生讨论，不构成入组判断。</p>`;
+    }
+
+    async function nextTrialPage() {
+      const items = state.trialResults || [];
+      const next = (state.trialPage || 0) + 1;
+      if (next * TRIAL_PAGE_SIZE >= items.length) {
+        if (!state.trialMeta?.nextPageToken) return;
+        await loadMoreTrials();
+        if (next * TRIAL_PAGE_SIZE >= (state.trialResults || []).length) return;
+      }
+      state.trialPage = next;
+      renderTrialResults();
+      $("#trialResults").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function prevTrialPage() {
+      if (!state.trialPage) return;
+      state.trialPage -= 1;
+      renderTrialResults();
+      $("#trialResults").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    async function screenCurrentPage() {
+      const items = state.trialResults || [];
+      const start = (state.trialPage || 0) * TRIAL_PAGE_SIZE;
+      for (let i = start; i < Math.min(start + TRIAL_PAGE_SIZE, items.length); i++) {
+        if (items[i].criteria && !items[i].screening) await aiScreenTrial(i);
+      }
     }
 
     function explainTrialHtml(item, index) {
@@ -1944,13 +1986,6 @@ JSON 结构：
         item.screening = { error: error.message };
       }
       renderTrialResults();
-    }
-
-    async function screenAllTrials() {
-      const items = state.trialResults || [];
-      for (let i = 0; i < items.length; i++) {
-        if (items[i].criteria && !items[i].screening) await aiScreenTrial(i);
-      }
     }
 
     function renderTags(tags) {
@@ -2572,13 +2607,9 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
         aiExplainTrial(Number(explainBtn.dataset.explainIdx));
         return;
       }
-      if (event.target.closest("#screenAllBtn")) {
-        const pending = (state.trialResults || []).filter(item => item.criteria && !item.screening).length;
-        if (pending > 20 && !window.confirm(`将对 ${pending} 条试验逐一调用 AI 初筛，耗时较长且消耗额度，确定继续？`)) return;
-        screenAllTrials();
-        return;
-      }
-      if (event.target.closest("#loadMoreTrialsBtn")) loadMoreTrials();
+      if (event.target.closest("#screenPageBtn")) { screenCurrentPage(); return; }
+      if (event.target.closest("#trialNextBtn")) { nextTrialPage(); return; }
+      if (event.target.closest("#trialPrevBtn")) prevTrialPage();
     });
 
     function refreshAiDependentUI() {
