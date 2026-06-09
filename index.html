@@ -554,6 +554,72 @@
       flex: 0 0 auto;
     }
 
+    .fam-check {
+      cursor: pointer;
+      background: #fff;
+      padding: 0;
+    }
+
+    .fam-check.checked {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .fam-check.checked::after {
+      content: "✓";
+      color: #fff;
+      display: block;
+      text-align: center;
+      font-size: 13px;
+      line-height: 18px;
+    }
+
+    .task.done strong,
+    .task.done span {
+      text-decoration: line-through;
+      color: #9aa6b7;
+    }
+
+    .task-main {
+      flex: 1;
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .owner-input {
+      height: 26px;
+      width: 130px;
+      font-size: 12px;
+      padding: 0 8px;
+    }
+
+    .task-del {
+      border: 0;
+      background: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 2px 4px;
+      flex: 0 0 auto;
+    }
+
+    .task-del:hover {
+      color: var(--danger);
+    }
+
+    .task-add {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+
+    .task-add input {
+      flex: 1 1 170px;
+    }
+
     .task strong,
     .question strong {
       display: block;
@@ -1005,10 +1071,16 @@
           <div class="panel">
             <div class="panel-head">
               <h3>家属协作任务</h3>
-              <small>把焦虑拆成能分工的动作</small>
+              <small>可勾选、可增删、可写负责人，随病例一起本地保存和导出</small>
             </div>
             <div class="panel-body">
               <div class="task-list" id="familyTasks"></div>
+              <div class="task-add">
+                <input id="familyTaskTitle" placeholder="新任务，例如：周四取 CT 报告">
+                <input id="familyTaskOwner" placeholder="负责人（选填）" style="flex:0 1 150px">
+                <button class="btn" id="familyTaskAdd">添加任务</button>
+                <button class="btn subtle" id="familyTaskReset">载入默认分工</button>
+              </div>
             </div>
           </div>
           <div class="panel">
@@ -1042,7 +1114,8 @@
       opportunities: [],
       pathways: [],
       questions: [],
-      events: []
+      events: [],
+      familyTasks: []
     };
 
     const $ = (selector) => document.querySelector(selector);
@@ -1503,7 +1576,8 @@
 
       renderPathway(pathway);
       renderOpportunities("all");
-      renderFamilyTasks(cancerType, stage, city);
+      if (!state.familyTasks || !state.familyTasks.length) state.familyTasks = familyTaskTemplate(city);
+      renderFamilyTasks();
       renderLetter(cancerType, stage, biomarkers, questions, profile);
       renderDoctorReport(cancerType, stage, city, biomarkers, profile, missing, events, questions, pathway);
     }
@@ -1541,17 +1615,33 @@
       `).join("");
     }
 
-    function renderFamilyTasks(cancerType, stage, city) {
-      const tasks = [
-        ["病历管理员", "把病理、出院小结、NGS、影像报告按日期上传，文件名统一为“日期-类型”。"],
+    function familyTaskTemplate(city) {
+      return [
+        ["病历管理员", "把病理、出院小结、NGS、影像报告按日期整理，文件名统一为“日期-类型”。"],
         ["复诊记录员", "陪诊时记录医生对进展、检查、换药、试验的原话和下一步时间点。"],
         ["试验联系人", `优先联系 ${city} 周边研究中心，确认是否仍在招募、是否接受外院报告。`],
         ["费用与报销", "整理医保、商保、慈善援助、临床试验交通补贴等信息。"],
         ["副作用观察", "每周记录皮疹、腹泻、乏力、疼痛、体重和体温，异常时及时联系医生。"]
-      ];
-      $("#familyTasks").innerHTML = tasks.map(([title, desc]) => `
-        <div class="task"><div class="check"></div><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(desc)}</span></div></div>
-      `).join("");
+      ].map(([title, desc]) => ({ title, desc, owner: "", done: false }));
+    }
+
+    function renderFamilyTasks() {
+      const tasks = state.familyTasks || [];
+      $("#familyTasks").innerHTML = tasks.map((task, index) => `
+        <div class="task${task.done ? " done" : ""}">
+          <button class="check fam-check${task.done ? " checked" : ""}" data-action="toggle" data-index="${index}" aria-label="标记完成"></button>
+          <div class="task-main">
+            <strong>${escapeHtml(task.title)}</strong>
+            ${task.desc ? `<span>${escapeHtml(task.desc)}</span>` : ""}
+            <input class="owner-input" data-action="owner" data-index="${index}" placeholder="负责人" value="${escapeHtml(task.owner || "")}">
+          </div>
+          <button class="task-del" data-action="remove" data-index="${index}" aria-label="删除任务">×</button>
+        </div>
+      `).join("") || `<p class="trial-hint">暂无任务。可在下方添加，或点击“载入默认分工”。</p>`;
+    }
+
+    function persistCase() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(getCaseData()));
     }
 
     function renderLetter(cancerType, stage, biomarkers, questions, profile) {
@@ -1642,7 +1732,8 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
           opportunities: state.opportunities,
           pathways: state.pathways,
           questions: state.questions,
-          events: state.events
+          events: state.events,
+          familyTasks: state.familyTasks
         }
       };
     }
@@ -1653,11 +1744,12 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
       $("#stage").value = data.stage || "IV 期";
       $("#city").value = data.city || "";
       $("#recordText").value = data.recordText || "";
+      state.familyTasks = Array.isArray(data.derived?.familyTasks) ? data.derived.familyTasks : [];
       analyze();
     }
 
     function saveLocalCase() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(getCaseData()));
+      persistCase();
       setStatus("已保存到浏览器本地存储。数据没有上传。");
     }
 
@@ -1723,6 +1815,44 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
 
     $("#analyzeBtn").addEventListener("click", analyze);
     $("#trialSearchBtn").addEventListener("click", searchTrials);
+
+    $("#familyTasks").addEventListener("click", (event) => {
+      const el = event.target.closest("[data-action]");
+      if (!el || el.dataset.action === "owner") return;
+      const index = Number(el.dataset.index);
+      if (el.dataset.action === "toggle") state.familyTasks[index].done = !state.familyTasks[index].done;
+      if (el.dataset.action === "remove") state.familyTasks.splice(index, 1);
+      renderFamilyTasks();
+      persistCase();
+    });
+
+    $("#familyTasks").addEventListener("change", (event) => {
+      const el = event.target.closest('[data-action="owner"]');
+      if (!el) return;
+      state.familyTasks[Number(el.dataset.index)].owner = el.value.trim();
+      persistCase();
+    });
+
+    $("#familyTaskAdd").addEventListener("click", () => {
+      const title = $("#familyTaskTitle").value.trim();
+      if (!title) {
+        setStatus("请先填写任务内容再添加。");
+        return;
+      }
+      state.familyTasks.push({ title, desc: "", owner: $("#familyTaskOwner").value.trim(), done: false });
+      $("#familyTaskTitle").value = "";
+      $("#familyTaskOwner").value = "";
+      renderFamilyTasks();
+      persistCase();
+      setStatus("已添加任务并保存到本地。");
+    });
+
+    $("#familyTaskReset").addEventListener("click", () => {
+      state.familyTasks = familyTaskTemplate($("#city").value || "本地");
+      renderFamilyTasks();
+      persistCase();
+      setStatus("已载入默认分工模板。");
+    });
     $("#saveBtn").addEventListener("click", saveLocalCase);
     $("#exportBtn").addEventListener("click", exportCase);
     $("#importBtn").addEventListener("click", () => $("#importFile").click());
