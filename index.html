@@ -1064,6 +1064,19 @@
             <div class="timeline" id="timeline"></div>
           </div>
         </div>
+
+        <div class="panel" style="margin-top:18px">
+          <div class="panel-head">
+            <div>
+              <h3>标志物逐条解读（AI）</h3>
+              <small>这是什么 · 和治疗机会什么关系 · 该问医生什么。不构成用药建议。</small>
+            </div>
+            <button class="btn" id="ngsBtn" type="button">生成解读</button>
+          </div>
+          <div class="panel-body">
+            <div class="task-list" id="ngsList"></div>
+          </div>
+        </div>
       </section>
 
       <section id="visit" class="section">
@@ -1197,6 +1210,19 @@
             <div class="panel-body">
               <div class="print-area" id="doctorLetter"></div>
             </div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top:18px">
+          <div class="panel-head">
+            <div>
+              <h3>中英文病情摘要（AI）</h3>
+              <small>用于海外二诊、同情用药/扩展用药申请材料，生成后请核对事实</small>
+            </div>
+            <button class="btn" id="bilingualBtn" type="button">生成中英文摘要</button>
+          </div>
+          <div class="panel-body">
+            <div class="print-area" id="bilingualOut"></div>
           </div>
         </div>
       </section>
@@ -1621,24 +1647,48 @@ JSON 结构：
       return content;
     }
 
-    async function aiExtract(text, cancerType) {
-      const messages = [
-        { role: "system", content: AI_SYSTEM_PROMPT },
-        { role: "user", content: `癌种：${cancerType}\n病历文本：\n${text}` }
-      ];
+    function parseAiJson(content) {
+      return JSON.parse(content.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*?$/, "$1"));
+    }
+
+    async function aiJson(messages) {
       let content;
       try {
         content = await aiChat(messages, true);
       } catch (error) {
         content = await aiChat(messages, false);
       }
-      const jsonText = content.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*?$/, "$1");
-      const parsed = JSON.parse(jsonText);
+      return parseAiJson(content);
+    }
+
+    async function aiExtract(text, cancerType) {
+      const parsed = await aiJson([
+        { role: "system", content: AI_SYSTEM_PROMPT },
+        { role: "user", content: `癌种：${cancerType}\n病历文本：\n${text}` }
+      ]);
       if (!Array.isArray(parsed.events) || !Array.isArray(parsed.biomarkers)) {
         throw new Error("AI 返回结构不完整");
       }
       return parsed;
     }
+
+    const SCREEN_SYSTEM = `你是临床试验资料整理助手，任务是比较患者资料与试验入排标准，做初步筛查。
+严格遵守：
+- 只输出 JSON：{"verdict":"可能相关|可能不符|资料不足","reasons":["最多3条，引用具体的入排标准条目"],"need":["还需补充的患者资料，最多3条"]}
+- 这只是帮患者判断"是否值得联系研究中心"的预筛线索，绝不能下"能入组/不能入组"的结论
+- 资料不足以判断时 verdict 用"资料不足"，不要猜测`;
+
+    const NGS_SYSTEM = `你是医学资料整理助手，任务是对每个标志物输出患者能看懂的解释。
+严格遵守：
+- 只输出 JSON：{"items":[{"marker":"标志物名","what":"这是什么，1-2句通俗解释","relevance":"与治疗机会的公开证据方向，1-2句，用'可与医生讨论…'的措辞","ask":"建议问医生的一个具体问题"}]}
+- 绝不推荐具体药物、剂量或方案，不下诊断结论
+- 不确定的内容明说不确定，不编造`;
+
+    const BILINGUAL_SYSTEM = `你是医学资料整理助手，任务是根据给定病程资料生成简明病情摘要，中英文各一段。
+严格遵守：
+- 只输出 JSON：{"zh":"中文摘要","en":"English summary"}
+- 只使用资料中明确出现的事实，缺失信息写"未提供"/"not provided"，不编造
+- 摘要用于海外二诊或扩展用药申请材料，客观陈述病程，不写任何治疗建议`;
 
     const TRIAL_COND = {
       "肺腺癌": "lung adenocarcinoma",
@@ -1697,28 +1747,96 @@ JSON 结构：
         }
         const userCity = $("#city").value.trim();
         const userCityEn = CITY_EN[userCity] || (/^[\x20-\x7e]+$/.test(userCity) ? userCity : "");
-        box.innerHTML = studies.map(study => {
+        state.trialResults = studies.map(study => {
           const proto = study.protocolSection || {};
-          const nct = proto.identificationModule?.nctId || "";
-          const title = proto.identificationModule?.briefTitle || "（无标题）";
-          const phases = (proto.designModule?.phases || []).join("/").replace(/PHASE(\d)/g, "$1 期").replace(/EARLY_1 期/, "早期 1 期").replace(/^NA$/, "期别不适用") || "期别未注明";
-          const lastUpdate = proto.statusModule?.lastUpdatePostDateStruct?.date || "";
           const locations = proto.contactsLocationsModule?.locations || [];
           const cnSites = locations.filter(site => /china/i.test(site.country || ""));
-          const cnCities = [...new Set(cnSites.map(site => site.city).filter(Boolean))].slice(0, 4).join("、");
-          const localMatch = userCityEn && locations.some(site => new RegExp(userCityEn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(site.city || ""));
-          return `<article class="opportunity">
-            <div class="opportunity-top">
-              <h4><a href="https://clinicaltrials.gov/study/${encodeURIComponent(nct)}" target="_blank" rel="noopener">${escapeHtml(nct)}</a> · ${escapeHtml(title)}</h4>
-            </div>
-            <p>${escapeHtml(phases)} · 招募中 · 研究中心 ${locations.length} 个${cnSites.length ? `，中国 ${cnSites.length} 个（${escapeHtml(cnCities)}）` : "，未列出中国中心"}${lastUpdate ? ` · 信息更新于 ${escapeHtml(lastUpdate)}` : ""}</p>
-            <div class="tag-row"><span class="tag blue">ClinicalTrials.gov 实时数据</span>${localMatch ? `<span class="tag">你所在城市（${escapeHtml(userCity)}）有研究中心</span>` : ""}<span class="tag">需医生确认</span></div>
-          </article>`;
-        }).join("") + `<p class="trial-hint" style="margin-top:10px">共 ${data.totalCount ?? studies.length} 项符合条件，当前显示前 ${studies.length} 项。<a href="${webUrl}" target="_blank" rel="noopener">在网站查看全部</a>。检索结果仅用于和医生讨论，不构成入组判断。</p>`;
+          return {
+            nct: proto.identificationModule?.nctId || "",
+            title: proto.identificationModule?.briefTitle || "（无标题）",
+            phases: (proto.designModule?.phases || []).join("/").replace(/PHASE(\d)/g, "$1 期").replace(/EARLY_1 期/, "早期 1 期").replace(/^NA$/, "期别不适用") || "期别未注明",
+            lastUpdate: proto.statusModule?.lastUpdatePostDateStruct?.date || "",
+            locationCount: locations.length,
+            cnCount: cnSites.length,
+            cnCities: [...new Set(cnSites.map(site => site.city).filter(Boolean))].slice(0, 4).join("、"),
+            localMatch: !!(userCityEn && locations.some(site => new RegExp(userCityEn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(site.city || ""))),
+            userCity,
+            criteria: proto.eligibilityModule?.eligibilityCriteria || "",
+            screening: null
+          };
+        });
+        state.trialMeta = { total: data.totalCount ?? studies.length, webUrl };
+        renderTrialResults();
       } catch (error) {
         box.innerHTML = `<p class="trial-hint">检索失败（${escapeHtml(error.message)}）。中国大陆网络环境可能无法直连 ClinicalTrials.gov 接口，可<a href="${webUrl}" target="_blank" rel="noopener">尝试直接打开网站</a>，或换网络后重试。</p>`;
       } finally {
         btn.disabled = false;
+      }
+    }
+
+    function renderTrialResults() {
+      const box = $("#trialResults");
+      const items = state.trialResults || [];
+      if (!items.length) return;
+      box.innerHTML = items.map((item, index) => `<article class="opportunity">
+          <div class="opportunity-top">
+            <h4><a href="https://clinicaltrials.gov/study/${encodeURIComponent(item.nct)}" target="_blank" rel="noopener">${escapeHtml(item.nct)}</a> · ${escapeHtml(item.title)}</h4>
+          </div>
+          <p>${escapeHtml(item.phases)} · 招募中 · 研究中心 ${item.locationCount} 个${item.cnCount ? `，中国 ${item.cnCount} 个（${escapeHtml(item.cnCities)}）` : "，未列出中国中心"}${item.lastUpdate ? ` · 信息更新于 ${escapeHtml(item.lastUpdate)}` : ""}</p>
+          ${screeningHtml(item, index)}
+          <div class="tag-row"><span class="tag blue">ClinicalTrials.gov 实时数据</span>${item.localMatch ? `<span class="tag">你所在城市（${escapeHtml(item.userCity)}）有研究中心</span>` : ""}<span class="tag">需医生确认</span></div>
+        </article>`).join("")
+        + `<p class="trial-hint" style="margin-top:10px">共 ${state.trialMeta.total} 项符合条件，当前显示前 ${items.length} 项。<a href="${state.trialMeta.webUrl}" target="_blank" rel="noopener">在网站查看全部</a>。${aiEnabled() ? `<button class="btn subtle" id="screenAllBtn" type="button" style="margin:0 6px">AI 初筛全部</button>` : ""}检索结果与初筛仅用于和医生讨论，不构成入组判断。</p>`;
+    }
+
+    function screeningHtml(item, index) {
+      if (!aiEnabled()) return "";
+      const s = item.screening;
+      if (!s) {
+        return item.criteria
+          ? `<p style="margin-top:8px"><button class="btn subtle" type="button" data-screen-idx="${index}">AI 入排初筛</button></p>`
+          : `<p class="trial-hint" style="margin-top:8px">该试验未提供入排标准文本，无法初筛。</p>`;
+      }
+      if (s.loading) return `<p class="trial-hint" style="margin-top:8px">AI 初筛中……</p>`;
+      if (s.error) return `<p class="trial-hint" style="margin-top:8px">初筛失败（${escapeHtml(s.error)}）<button class="btn subtle" type="button" data-screen-idx="${index}" style="margin-left:6px">重试</button></p>`;
+      const cls = s.verdict === "可能相关" ? "" : s.verdict === "资料不足" ? "blue" : "amber";
+      return `<div style="margin-top:8px">
+        <div class="tag-row"><span class="tag ${cls}">AI 初筛：${escapeHtml(s.verdict)}</span></div>
+        ${s.reasons?.length ? `<p style="margin-top:6px">依据：${escapeHtml(s.reasons.join("；"))}</p>` : ""}
+        ${s.need?.length ? `<p style="margin-top:4px">建议补充：${escapeHtml(s.need.join("；"))}</p>` : ""}
+      </div>`;
+    }
+
+    async function aiScreenTrial(index) {
+      const item = state.trialResults?.[index];
+      if (!item || !item.criteria || item.screening?.loading) return;
+      if (!state.patientSummary) {
+        setStatus("请先在总览页点“生成时间线与问题清单”，再做入排初筛。");
+        return;
+      }
+      item.screening = { loading: true };
+      renderTrialResults();
+      try {
+        const parsed = await aiJson([
+          { role: "system", content: SCREEN_SYSTEM },
+          { role: "user", content: `患者资料：${state.patientSummary}\n\n试验 ${item.nct}《${item.title}》的入排标准（原文，可能为英文）：\n${item.criteria.slice(0, 6000)}` }
+        ]);
+        if (!parsed.verdict) throw new Error("返回缺少 verdict");
+        item.screening = {
+          verdict: String(parsed.verdict),
+          reasons: (parsed.reasons || []).map(String),
+          need: (parsed.need || []).map(String)
+        };
+      } catch (error) {
+        item.screening = { error: error.message };
+      }
+      renderTrialResults();
+    }
+
+    async function screenAllTrials() {
+      const items = state.trialResults || [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].criteria && !items[i].screening) await aiScreenTrial(i);
       }
     }
 
@@ -1765,6 +1883,8 @@ JSON 结构：
         if (ai.treatmentLines) profile.treatmentLines = String(ai.treatmentLines);
       }
       state.usedAI = !!ai;
+      state.ngs = null;
+      state.bilingual = null;
       const missing = ai?.missingTests?.length
         ? ai.missingTests.map(item => [String(item.title || ""), String(item.desc || "")]).filter(([t]) => t)
         : buildMissing(text, profile);
@@ -1817,15 +1937,92 @@ JSON 结构：
       state.genMissing = missing;
       rebuildChecklists();
 
+      state.patientSummary = `癌种：${cancerType}，分期：${stage}。标志物：${biomarkers.join("，") || "未知"}。治疗线数：${profile.treatmentLines}。`
+        + `${profile.hasProgressSignal ? "存在进展/耐药线索。" : ""}${profile.hasNewLesion ? `新发病灶部位：${profile.newLesionSite || "未明"}。` : ""}`
+        + `病程：${events.map(([date, title, desc]) => `${date} ${title}：${desc}`).join("；")}`;
+
       const suggestedTerm = suggestTrialTerm(biomarkers);
       if (suggestedTerm) $("#trialTerm").value = suggestedTerm;
 
       renderPathway(pathway);
       renderOpportunities("all");
+      renderNgs();
+      renderBilingual();
       if (!state.familyTasks || !state.familyTasks.length) state.familyTasks = familyTaskTemplate(city);
       renderFamilyTasks();
       renderLetter(cancerType, stage, biomarkers, state.questions, profile);
       renderDoctorReport(cancerType, stage, city, biomarkers, profile, state.missing, events, state.questions, pathway);
+    }
+
+    async function generateNgs() {
+      if (!aiEnabled()) { setStatus("请先在“AI 智能解析”里完成配置。"); return; }
+      if (!state.biomarkers.length) { setStatus("尚未识别到标志物，请先生成病历整理。"); return; }
+      $("#ngsBtn").disabled = true;
+      $("#ngsList").innerHTML = `<p class="trial-hint">AI 解读生成中……</p>`;
+      try {
+        const parsed = await aiJson([
+          { role: "system", content: NGS_SYSTEM },
+          { role: "user", content: `癌种：${$("#cancerType").value}。治疗线数：${state.profile?.treatmentLines || "未知"}。标志物列表：${state.biomarkers.join("，")}` }
+        ]);
+        if (!Array.isArray(parsed.items) || !parsed.items.length) throw new Error("返回结构不完整");
+        state.ngs = parsed.items;
+        renderNgs();
+      } catch (error) {
+        $("#ngsList").innerHTML = `<p class="trial-hint">解读失败（${escapeHtml(error.message)}），可重试。</p>`;
+      } finally {
+        $("#ngsBtn").disabled = false;
+      }
+    }
+
+    function renderNgs() {
+      const box = $("#ngsList");
+      if (!box) return;
+      if (!state.ngs) {
+        box.innerHTML = `<p class="trial-hint">${aiEnabled()
+          ? "点击“生成解读”，AI 会逐条解释已识别的标志物：这是什么、和治疗机会什么关系、该问医生什么。"
+          : "需先在上方“AI 智能解析”里完成配置后使用。"}</p>`;
+        return;
+      }
+      box.innerHTML = state.ngs.map(item => `
+        <div class="task"><div class="task-main">
+          <strong>${escapeHtml(item.marker || "")}</strong>
+          <span>${escapeHtml(item.what || "")}</span>
+          <span>${escapeHtml(item.relevance || "")}</span>
+          <span>可以问医生：${escapeHtml(item.ask || "")}</span>
+        </div></div>
+      `).join("") + `<p class="trial-hint" style="margin-top:8px">AI 生成内容，仅用于理解资料和准备沟通，不构成用药建议，需医生确认。</p>`;
+    }
+
+    async function generateBilingual() {
+      if (!aiEnabled()) { setStatus("请先在总览页“AI 智能解析”里完成配置。"); return; }
+      if (!state.patientSummary) { setStatus("请先在总览页生成病历整理。"); return; }
+      $("#bilingualBtn").disabled = true;
+      $("#bilingualOut").textContent = "AI 生成中……";
+      try {
+        const parsed = await aiJson([
+          { role: "system", content: BILINGUAL_SYSTEM },
+          { role: "user", content: state.patientSummary }
+        ]);
+        if (!parsed.zh || !parsed.en) throw new Error("返回结构不完整");
+        state.bilingual = { zh: String(parsed.zh), en: String(parsed.en) };
+        renderBilingual();
+      } catch (error) {
+        $("#bilingualOut").textContent = `生成失败（${error.message}），可重试。`;
+      } finally {
+        $("#bilingualBtn").disabled = false;
+      }
+    }
+
+    function renderBilingual() {
+      const box = $("#bilingualOut");
+      if (!box) return;
+      if (!state.bilingual) {
+        box.textContent = aiEnabled()
+          ? "点击“生成中英文摘要”，根据当前病历生成可用于海外二诊或同情用药申请材料的双语病情摘要。"
+          : "需先在总览页“AI 智能解析”里完成配置后使用。";
+        return;
+      }
+      box.textContent = `【中文】\n${state.bilingual.zh}\n\n【English】\n${state.bilingual.en}\n\n—— AI 生成，请逐项核对事实后再使用；不构成诊疗建议。`;
     }
 
     function renderPathway(pathway) {
@@ -2200,6 +2397,23 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
 
     $("#analyzeBtn").addEventListener("click", analyze);
     $("#trialSearchBtn").addEventListener("click", searchTrials);
+    $("#ngsBtn").addEventListener("click", generateNgs);
+    $("#bilingualBtn").addEventListener("click", generateBilingual);
+
+    $("#trialResults").addEventListener("click", (event) => {
+      const screenBtn = event.target.closest("[data-screen-idx]");
+      if (screenBtn) {
+        aiScreenTrial(Number(screenBtn.dataset.screenIdx));
+        return;
+      }
+      if (event.target.closest("#screenAllBtn")) screenAllTrials();
+    });
+
+    function refreshAiDependentUI() {
+      renderNgs();
+      renderBilingual();
+      if (state.trialResults?.length) renderTrialResults();
+    }
 
     $("#aiProvider").addEventListener("change", () => {
       const preset = AI_PRESETS[$("#aiProvider").value];
@@ -2219,6 +2433,7 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
       aiConfig = { provider, baseUrl, model, key };
       localStorage.setItem(AI_STORAGE_KEY, JSON.stringify(aiConfig));
       updateAiBadge();
+      refreshAiDependentUI();
       setStatus("AI 设置已保存到浏览器本地。下次“生成”将使用 AI 解析。");
     });
 
@@ -2227,6 +2442,7 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
       localStorage.removeItem(AI_STORAGE_KEY);
       $("#aiKey").value = "";
       updateAiBadge();
+      refreshAiDependentUI();
       setStatus("已清除 AI 配置，恢复本地规则解析。");
     });
 
