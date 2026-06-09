@@ -617,6 +617,50 @@
       margin-bottom: 6px;
     }
 
+    .source a,
+    .trial-hint a {
+      color: var(--accent);
+    }
+
+    .trial-controls {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 10px;
+      align-items: end;
+    }
+
+    .trial-check {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 6px;
+      height: 38px;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .trial-check input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+    }
+
+    .trial-hint {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .opportunity h4 a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    @media (max-width: 680px) {
+      .trial-controls { grid-template-columns: 1fr; }
+    }
+
     .source span {
       color: var(--muted);
       font-size: 12px;
@@ -790,7 +834,7 @@
 
       <section id="overview" class="section active">
         <div class="stats">
-          <div class="stat"><span>资料完整度</span><strong id="completeness">78%</strong></div>
+          <div class="stat"><span>资料完整度（估算）</span><strong id="completeness">—</strong></div>
           <div class="stat"><span>关键待确认</span><strong id="missingCount">4 项</strong></div>
           <div class="stat"><span>可讨论机会</span><strong id="oppCount">6 个</strong></div>
           <div class="stat"><span>复诊问题</span><strong id="questionCount">8 条</strong></div>
@@ -901,11 +945,32 @@
       </section>
 
       <section id="opportunities" class="section">
+        <div class="panel" style="margin-bottom:18px">
+          <div class="panel-head">
+            <div>
+              <h3>真实临床试验检索</h3>
+              <small>数据实时来自 ClinicalTrials.gov 公开接口，只显示招募中的研究。是否适合入组需医生判断。</small>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="trial-controls">
+              <label>检索词（基因 / 突变 / 药物，建议英文）
+                <input id="trialTerm" placeholder="例如 EGFR、KRAS G12C、osimertinib">
+              </label>
+              <label class="trial-check"><input type="checkbox" id="trialChinaOnly" checked>只看中国有研究中心的</label>
+              <button class="btn primary" id="trialSearchBtn">检索真实试验</button>
+            </div>
+            <div class="opportunity-list" id="trialResults" style="margin-top:12px">
+              <p class="trial-hint">生成病历整理后会自动填入建议检索词。点击“检索真实试验”实时查询；中国大陆网络环境可能无法直连该接口，失败时可用结果区提供的网站链接。</p>
+            </div>
+          </div>
+        </div>
+
         <div class="panel">
           <div class="panel-head">
             <div>
-              <h3>治疗机会导航</h3>
-              <small>按可达性、证据相关性、资料缺口排序，最终需医生确认。</small>
+              <h3>可与医生讨论的方向（本地演示）</h3>
+              <small>开源版评分为本地规则演示值，不是真实试验匹配结果，仅用于整理讨论方向，最终需医生确认。</small>
             </div>
             <div class="tabs" role="tablist">
               <button class="active" data-filter="all">全部</button>
@@ -921,15 +986,15 @@
 
         <div class="panel" style="margin-top:18px">
           <div class="panel-head">
-            <h3>证据源</h3>
-            <small>真实产品中会接入实时数据接口</small>
+            <h3>证据源（公开入口）</h3>
+            <small>试验检索已接入实时接口，以下为可直接访问的公开数据库入口</small>
           </div>
           <div class="panel-body">
             <div class="source-strip">
-              <div class="source"><strong>ClinicalTrials.gov</strong><span>全球临床试验登记与招募状态，用于 NCT、入排标准和研究中心检索。</span></div>
-              <div class="source"><strong>药品标签</strong><span>FDA / NMPA / EMA 公开批准信息、适应症和安全性说明。</span></div>
-              <div class="source"><strong>肿瘤知识库</strong><span>OncoKB、CIViC 等突变证据库，用于标注证据等级。</span></div>
-              <div class="source"><strong>指南与文献</strong><span>NCCN、CSCO、PubMed 摘要与关键研究，用于解释治疗路径。</span></div>
+              <div class="source"><strong><a href="https://clinicaltrials.gov" target="_blank" rel="noopener">ClinicalTrials.gov</a></strong><span>全球临床试验登记与招募状态，用于 NCT、入排标准和研究中心检索。</span></div>
+              <div class="source"><strong><a href="https://www.accessdata.fda.gov/scripts/cder/daf/" target="_blank" rel="noopener">Drugs@FDA</a></strong><span>FDA 公开批准信息、适应症和安全性说明。</span></div>
+              <div class="source"><strong><a href="https://www.oncokb.org" target="_blank" rel="noopener">OncoKB</a></strong><span>突变证据库，按基因/突变查询证据等级和获批适应症。</span></div>
+              <div class="source"><strong><a href="https://pubmed.ncbi.nlm.nih.gov" target="_blank" rel="noopener">PubMed</a></strong><span>医学文献检索，用于查找关键研究和综述。</span></div>
             </div>
           </div>
         </div>
@@ -1020,8 +1085,15 @@
         ["MET 扩增", /MET.*(扩增|amplification|amp)|(扩增|amplification|amp).*MET/i],
         ["BRAF V600E", /BRAF.*V600E|V600E.*BRAF/i],
         ["KRAS G12C", /KRAS.*G12C|G12C.*KRAS/i],
-        ["HER2/ERBB2", /HER2|ERBB2/i],
+        ["HER2 阴性", /HER2\s*[(（]\s*[-－0]\s*[)）]|HER2[^。;；\n]{0,4}(阴性|低表达|negative)/i],
+        ["HER2 阳性/异常", /HER2[^。;；\n]{0,6}(扩增|阳性|突变|过表达|3\s*\+|[(（]\s*\+|positive|amplification|mutation)|ERBB2[^。;；\n]{0,6}(扩增|阳性|突变)/i],
         ["NTRK 融合", /NTRK.*(融合|阳性|fusion)|(融合|阳性|fusion).*NTRK/i],
+        ["ER 阳性", /(?<![A-Za-z])ER\s*[:：]?\s*[(（]?\s*(\+|阳性)/],
+        ["ER 阴性", /(?<![A-Za-z])ER\s*[:：]?\s*[(（]?\s*([-－]|阴性)/],
+        ["PR 阳性", /(?<![A-Za-z])Pg?R\s*[:：]?\s*[(（]?\s*(\+|阳性)/],
+        ["PR 阴性", /(?<![A-Za-z])Pg?R\s*[:：]?\s*[(（]?\s*([-－]|阴性)/],
+        ["BRCA1/2", /BRCA/i],
+        ["PIK3CA", /PIK3CA/i],
         ["MSI 稳定", /MSI.*稳定|MSS|MSI stable/i],
         ["MSI-H", /MSI-H|MSI high|微卫星高度不稳定/i],
         ["TMB 低", /TMB.*低|TMB low/i],
@@ -1106,14 +1178,10 @@
 
     function buildEvents(text) {
       const lines = text.split(/\n+/).map(line => line.trim()).filter(Boolean);
-      const fallback = [
-        ["2025-08", "初始诊断", "病理提示肺腺癌，建议补齐完整病理号、取材部位和免疫组化。", ["病理"]],
-        ["2025-09", "分期评估", "影像提示晚期/转移可能，后续治疗应围绕全身治疗和症状控制。", ["分期", "影像"]],
-        ["2025-10", "系统治疗", "已开始一线治疗，需持续记录疗效、毒副作用和停药原因。", ["用药"]],
-        ["2026-05", "疗效复盘", "如出现新病灶或指标上升，应与医生讨论是否进展及是否复查耐药。", ["复查", "待确认"]]
-      ];
 
-      if (lines.length < 3) return fallback;
+      if (lines.length < 3) {
+        return [["—", "未能识别出病程时间线", "当前文本太短或没有按时间逐行书写。建议按“日期 + 内容”一行一条粘贴，例如：2025-08 病理：右肺上叶肺腺癌……", ["提示"]]];
+      }
       return lines.slice(0, 7).map((line, index) => {
         const dateMatch = line.match(/(20\d{2}[-/.年]\d{1,2}|20\d{2})/);
         const date = dateMatch ? dateMatch[1].replace("年", "-").replace(/[/.]/g, "-") : `节点 ${index + 1}`;
@@ -1297,6 +1365,75 @@
       return { current: `${cancerType}：${current}`, branches };
     }
 
+    const TRIAL_COND = {
+      "肺腺癌": "lung adenocarcinoma",
+      "乳腺癌": "breast cancer",
+      "结直肠癌": "colorectal cancer",
+      "胃癌": "gastric cancer",
+      "胰腺癌": "pancreatic cancer",
+      "其他实体瘤": "solid tumor"
+    };
+
+    function suggestTrialTerm(biomarkers) {
+      const exact = ["KRAS G12C", "BRAF V600E", "EGFR T790M", "EGFR C797S"];
+      const priority = ["EGFR", "ALK", "ROS1", "RET", "MET", "BRAF", "KRAS", "HER2", "NTRK", "BRCA", "PIK3CA", "MSI-H"];
+      for (const gene of priority) {
+        const hit = biomarkers.find(item => item.startsWith(gene) && !/阴性|稳定/.test(item));
+        if (!hit) continue;
+        return exact.includes(hit) ? hit : gene;
+      }
+      return "";
+    }
+
+    async function searchTrials() {
+      const box = $("#trialResults");
+      const btn = $("#trialSearchBtn");
+      const cond = TRIAL_COND[$("#cancerType").value] || "cancer";
+      const term = $("#trialTerm").value.trim();
+      const chinaOnly = $("#trialChinaOnly").checked;
+      const params = new URLSearchParams({
+        "query.cond": cond,
+        "filter.overallStatus": "RECRUITING",
+        "pageSize": "8",
+        "countTotal": "true"
+      });
+      if (term) params.set("query.term", term);
+      if (chinaOnly) params.set("query.locn", "China");
+      const webUrl = `https://clinicaltrials.gov/search?cond=${encodeURIComponent(cond)}&term=${encodeURIComponent(term)}${chinaOnly ? "&locn=China" : ""}`;
+      btn.disabled = true;
+      box.innerHTML = `<p class="trial-hint">正在检索 ClinicalTrials.gov……</p>`;
+      try {
+        const res = await fetch("https://clinicaltrials.gov/api/v2/studies?" + params.toString());
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        const studies = data.studies || [];
+        if (!studies.length) {
+          box.innerHTML = `<p class="trial-hint">没有找到符合条件的招募中试验。可尝试更换检索词或取消“只看中国”，也可以<a href="${webUrl}" target="_blank" rel="noopener">在 ClinicalTrials.gov 网站检索</a>。</p>`;
+          return;
+        }
+        box.innerHTML = studies.map(study => {
+          const proto = study.protocolSection || {};
+          const nct = proto.identificationModule?.nctId || "";
+          const title = proto.identificationModule?.briefTitle || "（无标题）";
+          const phases = (proto.designModule?.phases || []).join("/").replace(/PHASE(\d)/g, "$1 期").replace(/EARLY_1 期/, "早期 1 期").replace(/^NA$/, "期别不适用") || "期别未注明";
+          const locations = proto.contactsLocationsModule?.locations || [];
+          const cnSites = locations.filter(site => /china/i.test(site.country || ""));
+          const cnCities = [...new Set(cnSites.map(site => site.city).filter(Boolean))].slice(0, 4).join("、");
+          return `<article class="opportunity">
+            <div class="opportunity-top">
+              <h4><a href="https://clinicaltrials.gov/study/${encodeURIComponent(nct)}" target="_blank" rel="noopener">${escapeHtml(nct)}</a> · ${escapeHtml(title)}</h4>
+            </div>
+            <p>${escapeHtml(phases)} · 招募中 · 研究中心 ${locations.length} 个${cnSites.length ? `，中国 ${cnSites.length} 个（${escapeHtml(cnCities)}）` : "，未列出中国中心"}</p>
+            <div class="tag-row"><span class="tag blue">ClinicalTrials.gov 实时数据</span><span class="tag">需医生确认</span></div>
+          </article>`;
+        }).join("") + `<p class="trial-hint" style="margin-top:10px">共 ${data.totalCount ?? studies.length} 项符合条件，当前显示前 ${studies.length} 项。<a href="${webUrl}" target="_blank" rel="noopener">在网站查看全部</a>。检索结果仅用于和医生讨论，不构成入组判断。</p>`;
+      } catch (error) {
+        box.innerHTML = `<p class="trial-hint">检索失败（${escapeHtml(error.message)}）。中国大陆网络环境可能无法直连 ClinicalTrials.gov 接口，可<a href="${webUrl}" target="_blank" rel="noopener">尝试直接打开网站</a>，或换网络后重试。</p>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
     function renderTags(tags) {
       return tags.map(tag => {
         const cls = /待|需|确认/.test(tag) ? "tag amber" : /影像|分子/.test(tag) ? "tag blue" : "tag";
@@ -1308,7 +1445,11 @@
       const cancerType = $("#cancerType").value;
       const stage = $("#stage").value;
       const city = $("#city").value || "本地";
-      const text = $("#recordText").value.trim() || sampleText;
+      const text = $("#recordText").value.trim();
+      if (!text) {
+        setStatus("请先粘贴报告文本，或点击“载入示例”查看演示效果。");
+        return;
+      }
       const biomarkers = detectBiomarkers(text);
       const profile = buildMolecularProfile(cancerType, biomarkers, text);
       const missing = buildMissing(text, profile);
@@ -1357,6 +1498,9 @@
         <div class="task"><div class="check"></div><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(desc)}</span></div></div>
       `).join("") || `<div class="task"><div class="check"></div><div><strong>资料暂时完整</strong><span>可以进入二诊摘要和临床试验预筛。</span></div></div>`;
 
+      const suggestedTerm = suggestTrialTerm(biomarkers);
+      if (suggestedTerm) $("#trialTerm").value = suggestedTerm;
+
       renderPathway(pathway);
       renderOpportunities("all");
       renderFamilyTasks(cancerType, stage, city);
@@ -1385,11 +1529,12 @@
         <article class="opportunity" data-type="${item.type}">
           <div class="opportunity-top">
             <h4>${escapeHtml(item.title)}</h4>
-            <span class="score">${escapeHtml(item.score)}</span>
+            <span class="score" title="本地规则演示评分，不代表真实试验匹配度">演示 ${escapeHtml(item.score)}</span>
           </div>
           <p>${escapeHtml(item.desc)}</p>
           <div class="tag-row">
             <span class="tag ${item.type === "trial" ? "blue" : item.type === "access" ? "amber" : ""}">${item.type === "trial" ? "临床试验" : item.type === "drug" ? "药物证据" : "申请路径"}</span>
+            <span class="tag amber">演示评分</span>
             <span class="tag">需医生确认</span>
           </div>
         </article>
@@ -1577,6 +1722,7 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
     });
 
     $("#analyzeBtn").addEventListener("click", analyze);
+    $("#trialSearchBtn").addEventListener("click", searchTrials);
     $("#saveBtn").addEventListener("click", saveLocalCase);
     $("#exportBtn").addEventListener("click", exportCase);
     $("#importBtn").addEventListener("click", () => $("#importFile").click());
