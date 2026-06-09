@@ -611,6 +611,32 @@
       color: var(--danger);
     }
 
+    .item-edit {
+      border: 0;
+      background: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      padding: 2px 4px;
+      flex: 0 0 auto;
+    }
+
+    .item-edit:hover {
+      color: var(--accent);
+    }
+
+    .edit-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .edit-actions .btn {
+      height: 30px;
+      padding: 0 10px;
+      font-size: 13px;
+    }
+
     .task-add {
       display: flex;
       gap: 8px;
@@ -977,19 +1003,29 @@
           <div class="panel">
             <div class="panel-head">
               <h3>复诊前问题清单</h3>
-              <small>让 7 分钟门诊更高效</small>
+              <small>可勾选、可增删改；删过的问题重新生成时不会再出现</small>
             </div>
             <div class="panel-body">
               <div class="question-list" id="questions"></div>
+              <div class="task-add">
+                <input id="questionAddTitle" placeholder="自定义问题，例如：是否需要调整止痛方案？">
+                <input id="questionAddDesc" placeholder="为什么要问（选填）" style="flex:0 1 180px">
+                <button class="btn" id="questionAddBtn">添加</button>
+              </div>
             </div>
           </div>
           <div class="panel">
             <div class="panel-head">
               <h3>材料补齐清单</h3>
-              <small>缺资料会影响二诊和试验预筛</small>
+              <small>可勾选、可增删改；缺资料会影响二诊和试验预筛</small>
             </div>
             <div class="panel-body">
               <div class="task-list" id="missingTasks"></div>
+              <div class="task-add">
+                <input id="missingAddTitle" placeholder="自定义材料任务，例如：找出 2025 年的出院小结">
+                <input id="missingAddDesc" placeholder="说明（选填）" style="flex:0 1 180px">
+                <button class="btn" id="missingAddBtn">添加</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1118,7 +1154,12 @@
       questions: [],
       events: [],
       familyTasks: [],
-      checked: { questions: [], missing: [] }
+      checked: { questions: [], missing: [] },
+      custom: { questions: [], missing: [] },
+      hidden: { questions: [], missing: [] },
+      genQuestions: [],
+      genMissing: [],
+      editing: null
     };
 
     const $ = (selector) => document.querySelector(selector);
@@ -1566,11 +1607,10 @@
         </article>
       `).join("");
 
-      state.checked.questions = state.checked.questions.filter(title => questions.some(([t]) => t === title));
-      state.checked.missing = state.checked.missing.filter(title => missing.some(([t]) => t === title));
-      renderChecklist("#questions", "question", questions, "questions");
-      renderChecklist("#missingTasks", "task", missing, "missing",
-        `<div class="task"><div class="check"></div><div><strong>资料暂时完整</strong><span>可以进入二诊摘要和临床试验预筛。</span></div></div>`);
+      state.editing = null;
+      state.genQuestions = questions;
+      state.genMissing = missing;
+      rebuildChecklists();
 
       const suggestedTerm = suggestTrialTerm(biomarkers);
       if (suggestedTerm) $("#trialTerm").value = suggestedTerm;
@@ -1579,8 +1619,8 @@
       renderOpportunities("all");
       if (!state.familyTasks || !state.familyTasks.length) state.familyTasks = familyTaskTemplate(city);
       renderFamilyTasks();
-      renderLetter(cancerType, stage, biomarkers, questions, profile);
-      renderDoctorReport(cancerType, stage, city, biomarkers, profile, missing, events, questions, pathway);
+      renderLetter(cancerType, stage, biomarkers, state.questions, profile);
+      renderDoctorReport(cancerType, stage, city, biomarkers, profile, state.missing, events, state.questions, pathway);
     }
 
     function renderPathway(pathway) {
@@ -1645,27 +1685,124 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify(getCaseData()));
     }
 
-    function renderChecklist(selector, cardClass, items, checkedKey, emptyHtml = "") {
-      $(selector).innerHTML = items.map(([title, desc]) => {
-        const isDone = state.checked[checkedKey].includes(title);
-        return `<div class="${cardClass}${isDone ? " done" : ""}">
-          <button class="check fam-check${isDone ? " checked" : ""}" data-check-key="${checkedKey}" data-title="${escapeHtml(title)}" aria-label="标记完成"></button>
-          <div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(desc)}</span></div>
-        </div>`;
-      }).join("") || emptyHtml;
+    const CHECKLIST_UI = {
+      questions: { selector: "#questions", cardClass: "question", empty: `<p class="trial-hint">暂无问题。可在下方添加自定义问题。</p>` },
+      missing: { selector: "#missingTasks", cardClass: "task", empty: `<div class="task"><div class="check"></div><div><strong>资料暂时完整</strong><span>可以进入二诊摘要和临床试验预筛。</span></div></div>` }
+    };
+
+    function mergeChecklist(key) {
+      const customs = state.custom[key];
+      const replacements = new Map(customs.filter(item => item.replaces).map(item => [item.replaces, item]));
+      const merged = [];
+      for (const [title, desc] of (key === "questions" ? state.genQuestions : state.genMissing)) {
+        const replacement = replacements.get(title);
+        if (replacement) merged.push([replacement.title, replacement.desc || ""]);
+        else if (!state.hidden[key].includes(title)) merged.push([title, desc]);
+      }
+      customs.filter(item => !item.replaces).forEach(item => merged.push([item.title, item.desc || ""]));
+      return merged;
     }
 
-    function toggleChecklist(event) {
-      const el = event.target.closest("[data-check-key]");
-      if (!el) return;
-      const key = el.dataset.checkKey;
-      const title = el.dataset.title;
-      const list = state.checked[key];
-      const at = list.indexOf(title);
-      if (at >= 0) list.splice(at, 1); else list.push(title);
+    function rebuildChecklists() {
+      ["questions", "missing"].forEach(key => {
+        const genTitles = (key === "questions" ? state.genQuestions : state.genMissing).map(([t]) => t);
+        state.hidden[key] = state.hidden[key].filter(title => genTitles.includes(title));
+      });
+      state.questions = mergeChecklist("questions");
+      state.missing = mergeChecklist("missing");
+      state.checked.questions = state.checked.questions.filter(t => state.questions.some(([x]) => x === t));
+      state.checked.missing = state.checked.missing.filter(t => state.missing.some(([x]) => x === t));
+      renderChecklist("questions");
+      renderChecklist("missing");
+      $("#questionCount").textContent = `${state.questions.length} 条`;
+      $("#missingCount").textContent = `${state.missing.length} 项`;
+    }
+
+    function renderChecklist(key) {
+      const ui = CHECKLIST_UI[key];
       const items = key === "questions" ? state.questions : state.missing;
-      renderChecklist(key === "questions" ? "#questions" : "#missingTasks", key === "questions" ? "question" : "task", items, key);
+      $(ui.selector).innerHTML = items.map(([title, desc]) => {
+        if (state.editing && state.editing.key === key && state.editing.title === title) {
+          return `<div class="${ui.cardClass}">
+            <div class="task-main">
+              <input class="edit-title" value="${escapeHtml(title)}">
+              <input class="edit-desc" value="${escapeHtml(desc)}" placeholder="说明（选填）">
+              <div class="edit-actions">
+                <button class="btn" data-edit-save="1" data-key="${key}" data-title="${escapeHtml(title)}">保存</button>
+                <button class="btn subtle" data-edit-cancel="1" data-key="${key}">取消</button>
+              </div>
+            </div>
+          </div>`;
+        }
+        const isDone = state.checked[key].includes(title);
+        return `<div class="${ui.cardClass}${isDone ? " done" : ""}">
+          <button class="check fam-check${isDone ? " checked" : ""}" data-check-key="${key}" data-title="${escapeHtml(title)}" aria-label="标记完成"></button>
+          <div class="task-main"><strong>${escapeHtml(title)}</strong>${desc ? `<span>${escapeHtml(desc)}</span>` : ""}</div>
+          <button class="item-edit" data-edit-key="${key}" data-title="${escapeHtml(title)}" aria-label="编辑">✎</button>
+          <button class="task-del" data-del-key="${key}" data-title="${escapeHtml(title)}" aria-label="删除">×</button>
+        </div>`;
+      }).join("") || ui.empty;
+    }
+
+    function checklistMutate(event) {
+      const check = event.target.closest("[data-check-key]");
+      const del = event.target.closest("[data-del-key]");
+      const edit = event.target.closest("[data-edit-key]");
+      const save = event.target.closest("[data-edit-save]");
+      const cancel = event.target.closest("[data-edit-cancel]");
+
+      if (check) {
+        const key = check.dataset.checkKey;
+        const title = check.dataset.title;
+        const at = state.checked[key].indexOf(title);
+        if (at >= 0) state.checked[key].splice(at, 1); else state.checked[key].push(title);
+      } else if (del) {
+        const key = del.dataset.delKey;
+        const title = del.dataset.title;
+        const customAt = state.custom[key].findIndex(item => item.title === title);
+        if (customAt >= 0) {
+          const removed = state.custom[key].splice(customAt, 1)[0];
+          if (removed.replaces) state.hidden[key].push(removed.replaces);
+        } else {
+          state.hidden[key].push(title);
+        }
+      } else if (edit) {
+        state.editing = { key: edit.dataset.editKey, title: edit.dataset.title };
+      } else if (save) {
+        const key = save.dataset.key;
+        const oldTitle = save.dataset.title;
+        const card = save.closest(".question, .task");
+        const newTitle = card.querySelector(".edit-title").value.trim();
+        const newDesc = card.querySelector(".edit-desc").value.trim();
+        if (!newTitle) { setStatus("内容不能为空。"); return; }
+        const customItem = state.custom[key].find(item => item.title === oldTitle);
+        if (customItem) {
+          customItem.title = newTitle;
+          customItem.desc = newDesc;
+        } else {
+          state.custom[key].push({ title: newTitle, desc: newDesc, replaces: oldTitle });
+        }
+        const checkedAt = state.checked[key].indexOf(oldTitle);
+        if (checkedAt >= 0) state.checked[key][checkedAt] = newTitle;
+        state.editing = null;
+      } else if (cancel) {
+        state.editing = null;
+      } else {
+        return;
+      }
+      rebuildChecklists();
       persistCase();
+    }
+
+    function checklistAdd(key, titleSel, descSel) {
+      const title = $(titleSel).value.trim();
+      if (!title) { setStatus("请先填写内容再添加。"); return; }
+      state.custom[key].push({ title, desc: $(descSel).value.trim() });
+      $(titleSel).value = "";
+      $(descSel).value = "";
+      rebuildChecklists();
+      persistCase();
+      setStatus("已添加并保存到本地。");
     }
 
     function renderLetter(cancerType, stage, biomarkers, questions, profile) {
@@ -1758,7 +1895,9 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
           questions: state.questions,
           events: state.events,
           familyTasks: state.familyTasks,
-          checked: state.checked
+          checked: state.checked,
+          custom: state.custom,
+          hidden: state.hidden
         }
       };
     }
@@ -1773,6 +1912,14 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
       state.checked = {
         questions: Array.isArray(data.derived?.checked?.questions) ? data.derived.checked.questions : [],
         missing: Array.isArray(data.derived?.checked?.missing) ? data.derived.checked.missing : []
+      };
+      state.custom = {
+        questions: Array.isArray(data.derived?.custom?.questions) ? data.derived.custom.questions : [],
+        missing: Array.isArray(data.derived?.custom?.missing) ? data.derived.custom.missing : []
+      };
+      state.hidden = {
+        questions: Array.isArray(data.derived?.hidden?.questions) ? data.derived.hidden.questions : [],
+        missing: Array.isArray(data.derived?.hidden?.missing) ? data.derived.hidden.missing : []
       };
       analyze();
     }
@@ -1845,8 +1992,10 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
     $("#analyzeBtn").addEventListener("click", analyze);
     $("#trialSearchBtn").addEventListener("click", searchTrials);
 
-    $("#questions").addEventListener("click", toggleChecklist);
-    $("#missingTasks").addEventListener("click", toggleChecklist);
+    $("#questions").addEventListener("click", checklistMutate);
+    $("#missingTasks").addEventListener("click", checklistMutate);
+    $("#questionAddBtn").addEventListener("click", () => checklistAdd("questions", "#questionAddTitle", "#questionAddDesc"));
+    $("#missingAddBtn").addEventListener("click", () => checklistAdd("missing", "#missingAddTitle", "#missingAddDesc"));
 
     $("#familyTasks").addEventListener("click", (event) => {
       const el = event.target.closest("[data-action]");
