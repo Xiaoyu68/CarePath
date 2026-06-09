@@ -575,7 +575,9 @@
     }
 
     .task.done strong,
-    .task.done span {
+    .task.done span,
+    .question.done strong,
+    .question.done span {
       text-decoration: line-through;
       color: #9aa6b7;
     }
@@ -1115,7 +1117,8 @@
       pathways: [],
       questions: [],
       events: [],
-      familyTasks: []
+      familyTasks: [],
+      checked: { questions: [], missing: [] }
     };
 
     const $ = (selector) => document.querySelector(selector);
@@ -1563,13 +1566,11 @@
         </article>
       `).join("");
 
-      $("#questions").innerHTML = questions.map(([title, desc]) => `
-        <div class="question"><div class="check"></div><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(desc)}</span></div></div>
-      `).join("");
-
-      $("#missingTasks").innerHTML = missing.map(([title, desc]) => `
-        <div class="task"><div class="check"></div><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(desc)}</span></div></div>
-      `).join("") || `<div class="task"><div class="check"></div><div><strong>资料暂时完整</strong><span>可以进入二诊摘要和临床试验预筛。</span></div></div>`;
+      state.checked.questions = state.checked.questions.filter(title => questions.some(([t]) => t === title));
+      state.checked.missing = state.checked.missing.filter(title => missing.some(([t]) => t === title));
+      renderChecklist("#questions", "question", questions, "questions");
+      renderChecklist("#missingTasks", "task", missing, "missing",
+        `<div class="task"><div class="check"></div><div><strong>资料暂时完整</strong><span>可以进入二诊摘要和临床试验预筛。</span></div></div>`);
 
       const suggestedTerm = suggestTrialTerm(biomarkers);
       if (suggestedTerm) $("#trialTerm").value = suggestedTerm;
@@ -1642,6 +1643,29 @@
 
     function persistCase() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(getCaseData()));
+    }
+
+    function renderChecklist(selector, cardClass, items, checkedKey, emptyHtml = "") {
+      $(selector).innerHTML = items.map(([title, desc]) => {
+        const isDone = state.checked[checkedKey].includes(title);
+        return `<div class="${cardClass}${isDone ? " done" : ""}">
+          <button class="check fam-check${isDone ? " checked" : ""}" data-check-key="${checkedKey}" data-title="${escapeHtml(title)}" aria-label="标记完成"></button>
+          <div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(desc)}</span></div>
+        </div>`;
+      }).join("") || emptyHtml;
+    }
+
+    function toggleChecklist(event) {
+      const el = event.target.closest("[data-check-key]");
+      if (!el) return;
+      const key = el.dataset.checkKey;
+      const title = el.dataset.title;
+      const list = state.checked[key];
+      const at = list.indexOf(title);
+      if (at >= 0) list.splice(at, 1); else list.push(title);
+      const items = key === "questions" ? state.questions : state.missing;
+      renderChecklist(key === "questions" ? "#questions" : "#missingTasks", key === "questions" ? "question" : "task", items, key);
+      persistCase();
     }
 
     function renderLetter(cancerType, stage, biomarkers, questions, profile) {
@@ -1733,7 +1757,8 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
           pathways: state.pathways,
           questions: state.questions,
           events: state.events,
-          familyTasks: state.familyTasks
+          familyTasks: state.familyTasks,
+          checked: state.checked
         }
       };
     }
@@ -1745,6 +1770,10 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
       $("#city").value = data.city || "";
       $("#recordText").value = data.recordText || "";
       state.familyTasks = Array.isArray(data.derived?.familyTasks) ? data.derived.familyTasks : [];
+      state.checked = {
+        questions: Array.isArray(data.derived?.checked?.questions) ? data.derived.checked.questions : [],
+        missing: Array.isArray(data.derived?.checked?.missing) ? data.derived.checked.missing : []
+      };
       analyze();
     }
 
@@ -1815,6 +1844,9 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
 
     $("#analyzeBtn").addEventListener("click", analyze);
     $("#trialSearchBtn").addEventListener("click", searchTrials);
+
+    $("#questions").addEventListener("click", toggleChecklist);
+    $("#missingTasks").addEventListener("click", toggleChecklist);
 
     $("#familyTasks").addEventListener("click", (event) => {
       const el = event.target.closest("[data-action]");
