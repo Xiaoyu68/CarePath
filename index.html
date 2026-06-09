@@ -1025,19 +1025,35 @@
         ["MSI 稳定", /MSI.*稳定|MSS|MSI stable/i],
         ["MSI-H", /MSI-H|MSI high|微卫星高度不稳定/i],
         ["TMB 低", /TMB.*低|TMB low/i],
-        ["TMB 高", /TMB.*高|TMB high/i],
-        ["PD-L1 10%", /PD-L1|PDL1/i],
-        ["CEA 升高", /CEA/i]
+        ["TMB 高", /TMB.*高|TMB high/i]
       ];
-      return [...new Set(patterns.filter(([, pattern]) => pattern.test(text)).map(([name]) => name))];
+      const found = patterns.filter(([, pattern]) => pattern.test(text)).map(([name]) => name);
+
+      const pdl1Match = text.match(/PD-?L1[^%\n]{0,20}?(\d+(?:\.\d+)?)\s*%/i);
+      if (pdl1Match) {
+        found.push(`PD-L1 ${pdl1Match[1]}%`);
+      } else if (/PD-?L1/i.test(text)) {
+        found.push("PD-L1 已检测");
+      }
+
+      const ceaLines = text.split(/\n+/).filter(line => /CEA/i.test(line));
+      if (ceaLines.length) {
+        const latest = ceaLines[ceaLines.length - 1];
+        found.push(/升至|升高|上升|增高/.test(latest) ? "CEA 升高" : /降至|下降|降低/.test(latest) ? "CEA 下降" : "CEA 已记录");
+      }
+
+      return [...new Set(found)];
     }
 
     function buildMolecularProfile(cancerType, biomarkers, text) {
       const egfrItems = biomarkers.filter(item => item.startsWith("EGFR"));
       const resistanceItems = biomarkers.filter(item => /T790M|C797S|MET|HER2|BRAF/.test(item));
       const hasLungCancer = /肺|lung/i.test(cancerType + text);
-      const hasProgressSignal = /新发|进展|升至|增大|耐药|PD|复发/.test(text);
+      const hasProgressSignal = /新发|进展|升至|增大|耐药|复发/.test(text) || /\bPD\b(?!\s*-?\s*L1)/.test(text);
       const hasResponseSignal = /缩小|缓解|下降|PR|部分缓解/.test(text);
+      const hasNewLesion = /新发/.test(text);
+      const lesionMatch = text.match(/(肝脏?|脑|颅内|骨|肺|肾上腺|淋巴结)[^。;；\n]{0,14}新发|新发[^。;；\n]{0,14}?(肝脏?|脑|颅内|骨|肺|肾上腺|淋巴结)/);
+      const newLesionSite = lesionMatch ? (lesionMatch[1] || lesionMatch[2] || "") : "";
       const treatmentLines = /二线|2线|second/i.test(text)
         ? "二线或后线"
         : /三线|3线|third/i.test(text)
@@ -1069,6 +1085,8 @@
         hasLungCancer,
         hasProgressSignal,
         hasResponseSignal,
+        hasNewLesion,
+        newLesionSite,
         treatmentLines,
         notes
       };
@@ -1128,9 +1146,11 @@
         },
         {
           type: "drug",
-          score: 78,
+          score: profile?.hasNewLesion ? 78 : 60,
           title: "寡进展处理路径讨论",
-          desc: "若仅肝脏单个新发灶，可与医生讨论增强影像确认后，是否存在局部治疗 + 继续原靶向药的可能性。"
+          desc: profile?.hasNewLesion
+            ? `资料中出现新发${profile.newLesionSite || ""}病灶线索。可与医生讨论增强影像确认后，是否存在局部治疗 + 继续原方案的可能性。`
+            : "若后续出现单个或少数新发病灶，可与医生讨论增强影像确认后，局部治疗 + 继续原方案是否有讨论价值。"
         },
         {
           type: "trial",
@@ -1150,7 +1170,9 @@
           type: "drug",
           score: hasPDL1 ? 64 : 52,
           title: "免疫治疗证据复核",
-          desc: "EGFR 突变肺癌免疫治疗获益通常需要谨慎评估，可把 PD-L1、TMB、既往治疗线数带给医生讨论。"
+          desc: hasEGFR
+            ? "EGFR 突变肺癌免疫治疗获益通常需要谨慎评估，可把 PD-L1、TMB、既往治疗线数带给医生讨论。"
+            : "可把 PD-L1、TMB、MSI 状态和既往治疗线数带给医生，讨论免疫治疗相关证据是否适用。"
         },
         {
           type: "access",
@@ -1169,14 +1191,25 @@
     }
 
     function buildQuestions(biomarkers, missing, profile) {
-      const questions = [
-        ["这次 CT 是否已经达到疾病进展标准？", "请医生明确是稳定、寡进展，还是全身进展。"],
-        ["新发肝脏病灶是否需要增强 MRI / PET-CT 确认？", "避免仅凭普通 CT 做重大治疗切换。"],
-        ["是否建议做 ctDNA 或组织活检寻找耐药机制？", "尤其关注 EGFR C797S、MET 扩增、HER2、BRAF 等。"],
-        ["如果只是寡进展，能否局部处理后继续当前药？", "帮助判断是否必须立刻换全身治疗。"],
+      const questions = [];
+      if (profile?.hasProgressSignal) {
+        questions.push(["这次影像是否已经达到疾病进展标准？", "请医生明确是稳定、寡进展，还是全身进展。"]);
+      } else {
+        questions.push(["当前疗效如何评估，是否继续当前方案？", "请医生明确疗效状态和继续当前治疗的判断标准。"]);
+      }
+      if (profile?.hasNewLesion) {
+        questions.push([`新发${profile.newLesionSite || ""}病灶是否需要增强 MRI / PET-CT 确认？`, "避免仅凭普通 CT 做重大治疗切换。"]);
+        questions.push(["如果只是寡进展，能否局部处理后继续当前药？", "帮助判断是否必须立刻换全身治疗。"]);
+      }
+      if (profile?.hasProgressSignal || profile?.egfrItems.length) {
+        questions.push(["是否建议做 ctDNA 或组织活检寻找耐药机制？", profile?.egfrItems.length
+          ? "尤其关注 EGFR C797S、MET 扩增、HER2、BRAF 等。"
+          : "进展时明确耐药机制，有助于和医生讨论下一步方向。"]);
+      }
+      questions.push(
         ["目前是否有适合的临床试验？", "请医生基于癌种、突变、治疗线数和身体状态预筛。"],
         ["下一次复查的时间和指标是什么？", "明确 CT/MRI、肿瘤标志物、肝肾功能等。"]
-      ];
+      );
       if (profile?.egfrItems.length) {
         questions.splice(2, 0,
           [`本次病例是否仍按 EGFR 路径管理？`, `已识别 ${profile.egfrItems.join("，")}，请医生确认当前处于 ${profile.treatmentLines}，以及是否需要按 EGFR 靶向治疗后路径复盘。`],
@@ -1186,7 +1219,7 @@
       if (profile?.hasProgressSignal) {
         questions.push(["是否需要把既往 CT 做成影像变化表？", "对比原发灶、新发病灶、转移灶和肿瘤标志物，有助于判断进展模式。"]);
       }
-      missing.slice(0, 3).forEach(([title, desc]) => questions.push([title + "是否必要？", desc]));
+      missing.slice(0, 3).forEach(([title, desc]) => questions.push([/是否/.test(title) ? title + "？" : title + "是否必要？", desc]));
       return questions;
     }
 
