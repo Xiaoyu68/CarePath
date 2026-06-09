@@ -756,6 +756,35 @@
       line-height: 1.55;
     }
 
+    .ai-settings {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+      padding: 10px 12px;
+    }
+
+    .ai-settings summary {
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 680;
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ai-form {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .ai-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
     .opportunity h4 a {
       color: var(--blue);
       text-decoration: none;
@@ -982,6 +1011,34 @@
                   <textarea id="recordText"></textarea>
                 </label>
                 <button class="btn primary" id="analyzeBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3v3"></path><path d="M12 18v3"></path><path d="M3 12h3"></path><path d="M18 12h3"></path><path d="m5.6 5.6 2.1 2.1"></path><path d="m16.3 16.3 2.1 2.1"></path><path d="m18.4 5.6-2.1 2.1"></path><path d="m7.7 16.3-2.1 2.1"></path><circle cx="12" cy="12" r="3"></circle></svg>生成时间线与问题清单</button>
+                <details class="ai-settings" id="aiSettings">
+                  <summary>AI 智能解析（可选，默认关闭）<span class="tag" id="aiStatusBadge">未配置</span></summary>
+                  <div class="ai-form">
+                    <label>服务商
+                      <select id="aiProvider">
+                        <option value="deepseek">DeepSeek 官方</option>
+                        <option value="dashscope">阿里云百炼（Qwen）</option>
+                        <option value="openrouter">OpenRouter</option>
+                        <option value="custom">自定义（OpenAI 兼容接口）</option>
+                      </select>
+                    </label>
+                    <label>接口地址
+                      <input id="aiBaseUrl" placeholder="https://api.deepseek.com/v1">
+                    </label>
+                    <label>模型
+                      <input id="aiModel" placeholder="deepseek-chat">
+                    </label>
+                    <label>API Key（仅保存在你的浏览器本地）
+                      <input id="aiKey" type="password" placeholder="sk-...">
+                    </label>
+                    <div class="ai-actions">
+                      <button class="btn" id="aiSaveBtn" type="button">保存设置</button>
+                      <button class="btn subtle" id="aiTestBtn" type="button">测试连接</button>
+                      <button class="btn subtle" id="aiClearBtn" type="button">清除配置</button>
+                    </div>
+                    <p class="trial-hint">开启后，点击“生成时间线与问题清单”会把你粘贴的病历文本直接从浏览器发送给上面所选的 AI 服务商做结构化解析（不经过愈径的任何服务器，但数据会离开你的设备，请阅读所选服务商的隐私政策）。Key 只存在浏览器 localStorage，不会随病例 JSON 导出。AI 调用失败时自动回退本地规则解析。AI 输出仅用于资料整理，不构成诊疗建议。</p>
+                  </div>
+                </details>
               </div>
             </div>
           </div>
@@ -1492,6 +1549,92 @@
       return { current: `${cancerType}：${current}`, branches };
     }
 
+    const AI_STORAGE_KEY = "carepath-ai-config";
+    const AI_PRESETS = {
+      deepseek: { baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+      dashscope: { baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus" },
+      openrouter: { baseUrl: "https://openrouter.ai/api/v1", model: "deepseek/deepseek-chat" },
+      custom: { baseUrl: "", model: "" }
+    };
+    let aiConfig = null;
+
+    const AI_SYSTEM_PROMPT = `你是一个癌症病历整理助手，唯一任务是把病历文本结构化为 JSON。
+严格遵守：
+- 只输出一个 JSON 对象，不输出任何其他文字
+- 不推荐药物或治疗方案，不做诊断，不预测生存期
+- 严格区分阴性/阳性（如 HER2(-) 输出 "HER2 阴性"）
+- 识别否定与缺失表述（如"PD-L1 未送检"应进入 missingTests 而不是 biomarkers）
+- 文本中没有的信息留空，不要编造
+JSON 结构：
+{
+ "events": [{"date":"YYYY-MM 或原文日期","title":"病理诊断|影像与分期|基因检测|治疗方案|疗效复盘|病情记录","desc":"一句话概括","tags":["病理","影像","分子标志物","治疗","复查","待确认"中选适用的]}],
+ "biomarkers": ["标志物及状态，如 EGFR 19del、HER2 阴性、ER 阳性、PD-L1 10%、CEA 升高"],
+ "treatmentLines": "一线|二线或后线|三线或后线|治疗线数待确认",
+ "hasProgressSignal": true或false,
+ "hasResponseSignal": true或false,
+ "hasNewLesion": true或false,
+ "newLesionSite": "如 肝脏，无则空字符串",
+ "missingTests": [{"title":"建议补齐的检查或资料","desc":"为什么需要，给医生确认"}]
+}`;
+
+    function loadAiConfig() {
+      try {
+        aiConfig = JSON.parse(localStorage.getItem(AI_STORAGE_KEY)) || null;
+      } catch { aiConfig = null; }
+      const provider = aiConfig?.provider || "deepseek";
+      $("#aiProvider").value = provider;
+      $("#aiBaseUrl").value = aiConfig?.baseUrl ?? AI_PRESETS[provider].baseUrl;
+      $("#aiModel").value = aiConfig?.model ?? AI_PRESETS[provider].model;
+      $("#aiKey").value = aiConfig?.key || "";
+      updateAiBadge();
+    }
+
+    function updateAiBadge() {
+      $("#aiStatusBadge").textContent = aiConfig?.key ? `已启用 · ${aiConfig.model}` : "未配置";
+      $("#aiStatusBadge").className = aiConfig?.key ? "tag" : "tag amber";
+    }
+
+    async function aiChat(messages, useJsonMode = true) {
+      const body = {
+        model: aiConfig.model,
+        temperature: 0,
+        messages
+      };
+      if (useJsonMode) body.response_format = { type: "json_object" };
+      const res = await fetch(aiConfig.baseUrl.replace(/\/+$/, "") + "/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + aiConfig.key
+        },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) throw new Error("AI 返回为空");
+      return content;
+    }
+
+    async function aiExtract(text, cancerType) {
+      const messages = [
+        { role: "system", content: AI_SYSTEM_PROMPT },
+        { role: "user", content: `癌种：${cancerType}\n病历文本：\n${text}` }
+      ];
+      let content;
+      try {
+        content = await aiChat(messages, true);
+      } catch (error) {
+        content = await aiChat(messages, false);
+      }
+      const jsonText = content.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*?$/, "$1");
+      const parsed = JSON.parse(jsonText);
+      if (!Array.isArray(parsed.events) || !Array.isArray(parsed.biomarkers)) {
+        throw new Error("AI 返回结构不完整");
+      }
+      return parsed;
+    }
+
     const TRIAL_COND = {
       "肺腺癌": "lung adenocarcinoma",
       "乳腺癌": "breast cancer",
@@ -1581,7 +1724,7 @@
       }).join("");
     }
 
-    function analyze() {
+    async function analyze() {
       const cancerType = $("#cancerType").value;
       const stage = $("#stage").value;
       const city = $("#city").value || "本地";
@@ -1590,10 +1733,44 @@
         setStatus("请先粘贴报告文本，或点击“载入示例”查看演示效果。");
         return;
       }
-      const biomarkers = detectBiomarkers(text);
+
+      let ai = null;
+      if (aiConfig?.key) {
+        setStatus("正在调用 AI 解析病历……");
+        $("#analyzeBtn").disabled = true;
+        try {
+          ai = await aiExtract(text, cancerType);
+          setStatus(`AI 解析完成（${aiConfig.model}）。`);
+        } catch (error) {
+          setStatus(`AI 解析失败（${error.message}），已回退本地规则解析。`);
+        } finally {
+          $("#analyzeBtn").disabled = false;
+        }
+      }
+
+      const biomarkers = ai?.biomarkers?.length
+        ? [...new Set(ai.biomarkers.map(String))]
+        : detectBiomarkers(text);
       const profile = buildMolecularProfile(cancerType, biomarkers, text);
-      const missing = buildMissing(text, profile);
-      const events = buildEvents(text);
+      if (ai) {
+        profile.hasProgressSignal = !!ai.hasProgressSignal;
+        profile.hasResponseSignal = !!ai.hasResponseSignal;
+        profile.hasNewLesion = !!ai.hasNewLesion;
+        profile.newLesionSite = String(ai.newLesionSite || "");
+        if (ai.treatmentLines) profile.treatmentLines = String(ai.treatmentLines);
+      }
+      state.usedAI = !!ai;
+      const missing = ai?.missingTests?.length
+        ? ai.missingTests.map(item => [String(item.title || ""), String(item.desc || "")]).filter(([t]) => t)
+        : buildMissing(text, profile);
+      const events = ai?.events?.length
+        ? ai.events.map(event => [
+            String(event.date || "—"),
+            String(event.title || "病情记录"),
+            String(event.desc || ""),
+            Array.isArray(event.tags) && event.tags.length ? event.tags.map(String) : ["记录"]
+          ])
+        : buildEvents(text);
       const opportunities = buildOpportunities(cancerType, biomarkers, city, profile);
       const questions = buildQuestions(biomarkers, missing, profile);
       const pathway = buildPathway(cancerType, biomarkers, text, missing, profile);
@@ -1614,7 +1791,7 @@
 
       $("#summary").innerHTML = `
         <div class="summary-block"><h4>核心病情</h4><p>${cancerType}，${stage}。已导入 ${events.length} 个关键节点，建议复诊时重点确认疗效状态和后续检测计划。</p></div>
-        <div class="summary-block"><h4>分子标志物</h4><div class="tag-row">${renderTags(biomarkers.length ? biomarkers : ["待补齐 NGS/免疫指标"])}</div></div>
+        <div class="summary-block"><h4>分子标志物</h4><div class="tag-row">${renderTags(biomarkers.length ? biomarkers : ["待补齐 NGS/免疫指标"])}<span class="tag ${state.usedAI ? "blue" : "amber"}">${state.usedAI ? "AI 解析" : "本地规则解析"}</span></div></div>
         <div class="summary-block"><h4>EGFR 路径重点</h4><p>${escapeHtml(profile.notes.join(" ") || "尚未识别到 EGFR 专属路径线索，可先补齐 NGS、治疗线数和影像变化资料。")}</p></div>
         <div class="summary-block"><h4>当前重点</h4><p>${missing.length ? missing[0][1] : "资料较完整，可进入临床试验与二诊材料准备。"}</p></div>
       `;
@@ -2019,6 +2196,55 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
     $("#analyzeBtn").addEventListener("click", analyze);
     $("#trialSearchBtn").addEventListener("click", searchTrials);
 
+    $("#aiProvider").addEventListener("change", () => {
+      const preset = AI_PRESETS[$("#aiProvider").value];
+      $("#aiBaseUrl").value = preset.baseUrl;
+      $("#aiModel").value = preset.model;
+    });
+
+    $("#aiSaveBtn").addEventListener("click", () => {
+      const key = $("#aiKey").value.trim();
+      const baseUrl = $("#aiBaseUrl").value.trim();
+      const model = $("#aiModel").value.trim();
+      if (!key || !baseUrl || !model) {
+        setStatus("接口地址、模型和 API Key 都需要填写。");
+        return;
+      }
+      aiConfig = { provider: $("#aiProvider").value, baseUrl, model, key };
+      localStorage.setItem(AI_STORAGE_KEY, JSON.stringify(aiConfig));
+      updateAiBadge();
+      setStatus("AI 设置已保存到浏览器本地。下次“生成”将使用 AI 解析。");
+    });
+
+    $("#aiClearBtn").addEventListener("click", () => {
+      aiConfig = null;
+      localStorage.removeItem(AI_STORAGE_KEY);
+      $("#aiKey").value = "";
+      updateAiBadge();
+      setStatus("已清除 AI 配置，恢复本地规则解析。");
+    });
+
+    $("#aiTestBtn").addEventListener("click", async () => {
+      const key = $("#aiKey").value.trim();
+      const baseUrl = $("#aiBaseUrl").value.trim();
+      const model = $("#aiModel").value.trim();
+      if (!key || !baseUrl || !model) {
+        setStatus("请先填写接口地址、模型和 API Key 再测试。");
+        return;
+      }
+      const saved = aiConfig;
+      aiConfig = { provider: $("#aiProvider").value, baseUrl, model, key };
+      setStatus("正在测试连接……");
+      try {
+        await aiChat([{ role: "user", content: "回复 ok" }], false);
+        setStatus("连接成功，模型可用。记得点“保存设置”。");
+      } catch (error) {
+        setStatus(`连接失败：${error.message}`);
+      } finally {
+        aiConfig = saved;
+      }
+    });
+
     $("#questions").addEventListener("click", checklistMutate);
     $("#missingTasks").addEventListener("click", checklistMutate);
     $("#questionAddBtn").addEventListener("click", () => checklistAdd("questions", "#questionAddTitle", "#questionAddDesc"));
@@ -2070,9 +2296,16 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
     });
     $("#printBtn").addEventListener("click", () => window.print());
 
-    if (!loadLocalCase()) {
-      $("#recordText").value = sampleText;
-      analyze();
+    loadAiConfig();
+    {
+      // 页面加载时的自动恢复只用本地规则，避免未经本次操作就发送数据/产生费用
+      const savedAiConfig = aiConfig;
+      aiConfig = null;
+      if (!loadLocalCase()) {
+        $("#recordText").value = sampleText;
+        analyze();
+      }
+      aiConfig = savedAiConfig;
     }
   </script>
 </body>
