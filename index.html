@@ -1016,6 +1016,7 @@
                   <div class="ai-form">
                     <label>服务商
                       <select id="aiProvider">
+                        <option value="site">本站内置（无需 Key，需站长开通）</option>
                         <option value="deepseek">DeepSeek 官方</option>
                         <option value="dashscope">阿里云百炼（Qwen）</option>
                         <option value="openrouter">OpenRouter</option>
@@ -1036,7 +1037,7 @@
                       <button class="btn subtle" id="aiTestBtn" type="button">测试连接</button>
                       <button class="btn subtle" id="aiClearBtn" type="button">清除配置</button>
                     </div>
-                    <p class="trial-hint">开启后，点击“生成时间线与问题清单”会把你粘贴的病历文本直接从浏览器发送给上面所选的 AI 服务商做结构化解析（不经过愈径的任何服务器，但数据会离开你的设备，请阅读所选服务商的隐私政策）。Key 只存在浏览器 localStorage，不会随病例 JSON 导出。AI 调用失败时自动回退本地规则解析。AI 输出仅用于资料整理，不构成诊疗建议。</p>
+                    <p class="trial-hint">开启后，点击“生成时间线与问题清单”会把你粘贴的病历文本发送给所选 AI 服务商做结构化解析：自带 Key 的方式由浏览器直连服务商、不经过本站服务器；“本站内置”方式会经过本站的边缘函数转发（站长不会保存你的内容，但请知悉链路）。数据都会离开你的设备，请阅读所选服务商的隐私政策。Key 只存在浏览器 localStorage，不会随病例 JSON 导出。AI 调用失败时自动回退本地规则解析。AI 输出仅用于资料整理，不构成诊疗建议。</p>
                   </div>
                 </details>
               </div>
@@ -1551,6 +1552,7 @@
 
     const AI_STORAGE_KEY = "carepath-ai-config";
     const AI_PRESETS = {
+      site: { baseUrl: "/api/ai", model: "deepseek/deepseek-chat" },
       deepseek: { baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
       dashscope: { baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus" },
       openrouter: { baseUrl: "https://openrouter.ai/api/v1", model: "deepseek/deepseek-chat" },
@@ -1589,9 +1591,13 @@ JSON 结构：
       updateAiBadge();
     }
 
+    function aiEnabled() {
+      return !!(aiConfig && (aiConfig.key || aiConfig.provider === "site"));
+    }
+
     function updateAiBadge() {
-      $("#aiStatusBadge").textContent = aiConfig?.key ? `已启用 · ${aiConfig.model}` : "未配置";
-      $("#aiStatusBadge").className = aiConfig?.key ? "tag" : "tag amber";
+      $("#aiStatusBadge").textContent = aiEnabled() ? `已启用 · ${aiConfig.model}` : "未配置";
+      $("#aiStatusBadge").className = aiEnabled() ? "tag" : "tag amber";
     }
 
     async function aiChat(messages, useJsonMode = true) {
@@ -1601,12 +1607,11 @@ JSON 结构：
         messages
       };
       if (useJsonMode) body.response_format = { type: "json_object" };
+      const headers = { "Content-Type": "application/json" };
+      if (aiConfig.key) headers["Authorization"] = "Bearer " + aiConfig.key;
       const res = await fetch(aiConfig.baseUrl.replace(/\/+$/, "") + "/chat/completions", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + aiConfig.key
-        },
+        headers,
         body: JSON.stringify(body)
       });
       if (!res.ok) throw new Error("HTTP " + res.status);
@@ -1735,7 +1740,7 @@ JSON 结构：
       }
 
       let ai = null;
-      if (aiConfig?.key) {
+      if (aiEnabled()) {
         setStatus("正在调用 AI 解析病历……");
         $("#analyzeBtn").disabled = true;
         try {
@@ -2203,14 +2208,15 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
     });
 
     $("#aiSaveBtn").addEventListener("click", () => {
+      const provider = $("#aiProvider").value;
       const key = $("#aiKey").value.trim();
       const baseUrl = $("#aiBaseUrl").value.trim();
       const model = $("#aiModel").value.trim();
-      if (!key || !baseUrl || !model) {
-        setStatus("接口地址、模型和 API Key 都需要填写。");
+      if (!baseUrl || !model || (!key && provider !== "site")) {
+        setStatus(provider === "site" ? "接口地址和模型需要填写。" : "接口地址、模型和 API Key 都需要填写。");
         return;
       }
-      aiConfig = { provider: $("#aiProvider").value, baseUrl, model, key };
+      aiConfig = { provider, baseUrl, model, key };
       localStorage.setItem(AI_STORAGE_KEY, JSON.stringify(aiConfig));
       updateAiBadge();
       setStatus("AI 设置已保存到浏览器本地。下次“生成”将使用 AI 解析。");
@@ -2225,15 +2231,16 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
     });
 
     $("#aiTestBtn").addEventListener("click", async () => {
+      const provider = $("#aiProvider").value;
       const key = $("#aiKey").value.trim();
       const baseUrl = $("#aiBaseUrl").value.trim();
       const model = $("#aiModel").value.trim();
-      if (!key || !baseUrl || !model) {
+      if (!baseUrl || !model || (!key && provider !== "site")) {
         setStatus("请先填写接口地址、模型和 API Key 再测试。");
         return;
       }
       const saved = aiConfig;
-      aiConfig = { provider: $("#aiProvider").value, baseUrl, model, key };
+      aiConfig = { provider, baseUrl, model, key };
       setStatus("正在测试连接……");
       try {
         await aiChat([{ role: "user", content: "回复 ok" }], false);
