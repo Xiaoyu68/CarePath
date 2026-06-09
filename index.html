@@ -1,0 +1,1325 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>愈径 CarePath - 癌症病历时间线与治疗机会导航</title>
+  <style>
+    :root {
+      --ink: #18212f;
+      --muted: #647084;
+      --line: #d9e0ea;
+      --panel: #ffffff;
+      --soft: #f5f7fa;
+      --soft-2: #eef5f1;
+      --accent: #0f766e;
+      --accent-2: #b45309;
+      --danger: #b42318;
+      --blue: #2563eb;
+      --green: #16845b;
+      --shadow: 0 14px 36px rgba(24, 33, 47, .10);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(180deg, rgba(238,245,241,.82), rgba(245,247,250,.96) 260px),
+        var(--soft);
+      letter-spacing: 0;
+    }
+
+    button, input, textarea, select {
+      font: inherit;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 264px 1fr;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 22px 18px;
+      background: #101820;
+      color: #edf7f3;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 4px 4px 16px;
+      border-bottom: 1px solid rgba(255,255,255,.12);
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: #f4fbf8;
+      color: var(--accent);
+      box-shadow: inset 0 0 0 1px rgba(15,118,110,.16);
+      flex: 0 0 auto;
+    }
+
+    .brand h1 {
+      font-size: 18px;
+      line-height: 1.15;
+      margin: 0;
+      font-weight: 760;
+    }
+
+    .brand span {
+      display: block;
+      color: rgba(237,247,243,.66);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    .nav {
+      display: grid;
+      gap: 8px;
+    }
+
+    .nav button {
+      width: 100%;
+      height: 42px;
+      border: 0;
+      border-radius: 8px;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: rgba(237,247,243,.76);
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .nav button:hover,
+    .nav button.active {
+      background: rgba(255,255,255,.10);
+      color: #ffffff;
+    }
+
+    .icon {
+      width: 19px;
+      height: 19px;
+      stroke: currentColor;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex: 0 0 auto;
+    }
+
+    .sidebar-note {
+      margin-top: auto;
+      padding: 14px;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 8px;
+      background: rgba(255,255,255,.06);
+      color: rgba(237,247,243,.82);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    main {
+      min-width: 0;
+      padding: 22px 28px 36px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 22px;
+    }
+
+    .patient-head {
+      min-width: 0;
+    }
+
+    .eyebrow {
+      margin: 0 0 6px;
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 720;
+    }
+
+    .patient-head h2 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.15;
+    }
+
+    .patient-head p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      max-width: 760px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .btn {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      height: 38px;
+      padding: 0 13px;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn.primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn.subtle {
+      background: #f8fafc;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(340px, .95fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .panel-head h3 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .panel-head small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .panel-body { padding: 18px; }
+
+    .upload {
+      border: 1px dashed #9db2c6;
+      background: #f9fbfc;
+      border-radius: 8px;
+      padding: 18px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .upload textarea {
+      width: 100%;
+      min-height: 145px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      line-height: 1.55;
+      color: var(--ink);
+      background: #fff;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 680;
+    }
+
+    input, select {
+      width: 100%;
+      height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0 10px;
+      color: var(--ink);
+      background: #fff;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .stat {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      min-height: 94px;
+      display: grid;
+      align-content: space-between;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .stat strong {
+      font-size: 23px;
+      line-height: 1.1;
+    }
+
+    .timeline {
+      position: relative;
+      display: grid;
+      gap: 14px;
+    }
+
+    .event {
+      display: grid;
+      grid-template-columns: 92px 1fr;
+      gap: 14px;
+      align-items: start;
+      padding-bottom: 14px;
+      border-bottom: 1px solid #edf0f4;
+    }
+
+    .event:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .date {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    .event h4 {
+      margin: 0 0 6px;
+      font-size: 14px;
+    }
+
+    .event p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      height: 26px;
+      border-radius: 999px;
+      padding: 0 10px;
+      background: #edf6f4;
+      color: #0f5f59;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .tag.amber {
+      background: #fff6e8;
+      color: #92400e;
+    }
+
+    .tag.blue {
+      background: #edf4ff;
+      color: #1d4ed8;
+    }
+
+    .summary {
+      display: grid;
+      gap: 12px;
+    }
+
+    .summary-block {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfd;
+    }
+
+    .summary-block h4 {
+      margin: 0 0 8px;
+      font-size: 13px;
+    }
+
+    .summary-block p,
+    .summary-block li {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .summary-block p { margin: 0; }
+    ul { margin: 0; padding-left: 18px; }
+
+    .opportunity-list,
+    .task-list,
+    .question-list,
+    .path-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .path-map {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .path-current {
+      border: 1px solid #b7d8d3;
+      border-radius: 8px;
+      background: #f0faf7;
+      padding: 16px;
+    }
+
+    .path-current h4,
+    .path-card h4 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+
+    .path-current p,
+    .path-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .path-card {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 13px 13px 13px 42px;
+    }
+
+    .path-card::before {
+      content: "";
+      position: absolute;
+      left: 14px;
+      top: 17px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 5px #edf6f4;
+    }
+
+    .path-card.warning::before {
+      background: var(--accent-2);
+      box-shadow: 0 0 0 5px #fff6e8;
+    }
+
+    .path-card.action::before {
+      background: var(--blue);
+      box-shadow: 0 0 0 5px #edf4ff;
+    }
+
+    .opportunity {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 13px;
+      background: #fff;
+    }
+
+    .opportunity-top {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .opportunity h4 {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .score {
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      min-width: 54px;
+      height: 28px;
+      border-radius: 999px;
+      color: #fff;
+      background: var(--green);
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    .opportunity p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      background: #eef1f5;
+      border-radius: 8px;
+      padding: 4px;
+    }
+
+    .tabs button {
+      height: 31px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      padding: 0 10px;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .tabs button.active {
+      background: #fff;
+      color: var(--ink);
+      box-shadow: 0 1px 3px rgba(24,33,47,.12);
+    }
+
+    .task,
+    .question {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .check {
+      width: 20px;
+      height: 20px;
+      border: 1px solid #b9c5d4;
+      border-radius: 6px;
+      margin-top: 1px;
+      flex: 0 0 auto;
+    }
+
+    .task strong,
+    .question strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 3px;
+    }
+
+    .task span,
+    .question span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .section {
+      display: none;
+    }
+
+    .section.active {
+      display: block;
+    }
+
+    .source-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .source {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+      min-height: 98px;
+    }
+
+    .notice {
+      border: 1px solid #b7d8d3;
+      border-radius: 8px;
+      background: #f0faf7;
+      padding: 12px;
+      color: #0f5f59;
+      font-size: 13px;
+      line-height: 1.55;
+      margin-bottom: 18px;
+    }
+
+    .status-line {
+      min-height: 18px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .file-input {
+      display: none;
+    }
+
+    .source strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+
+    .source span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .print-area {
+      white-space: pre-wrap;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fbfcfd;
+      font-size: 13px;
+      line-height: 1.65;
+      color: #263244;
+    }
+
+    @media (max-width: 1020px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar {
+        position: static;
+        height: auto;
+        padding: 14px;
+      }
+      .brand { padding-bottom: 12px; }
+      .nav {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+      }
+      .sidebar-note { display: none; }
+      main { padding: 18px; }
+      .grid { grid-template-columns: 1fr; }
+      .path-map { grid-template-columns: 1fr; }
+      .stats, .source-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 680px) {
+      .topbar { align-items: stretch; flex-direction: column; }
+      .actions { justify-content: stretch; }
+      .btn { flex: 1 1 auto; justify-content: center; }
+      .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .patient-head h2 { font-size: 23px; }
+      .form-row, .stats, .source-strip { grid-template-columns: 1fr; }
+      .event { grid-template-columns: 1fr; gap: 6px; }
+      .panel-head { align-items: flex-start; flex-direction: column; }
+    }
+
+    @media print {
+      body { background: #fff; }
+      .sidebar, .topbar .actions, .upload, .tabs { display: none !important; }
+      .app { display: block; }
+      main { padding: 0; }
+      .panel { box-shadow: none; break-inside: avoid; }
+      .section { display: block; margin-bottom: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M12 3v18"></path><path d="M6 8c3 0 6 2 6 5"></path><path d="M18 8c-3 0-6 2-6 5"></path><path d="M7 16h10"></path></svg>
+        </div>
+        <div>
+          <h1>愈径</h1>
+          <span>CarePath</span>
+        </div>
+      </div>
+      <nav class="nav" aria-label="主导航">
+        <button class="active" data-section="overview"><svg class="icon" viewBox="0 0 24 24"><path d="M4 19V5"></path><path d="M4 19h16"></path><path d="m7 15 4-4 3 3 5-7"></path></svg>总览</button>
+        <button data-section="visit"><svg class="icon" viewBox="0 0 24 24"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M3 10h18"></path></svg>复诊准备</button>
+        <button data-section="pathway"><svg class="icon" viewBox="0 0 24 24"><path d="M4 6h6a4 4 0 0 1 4 4v10"></path><path d="M4 18h6a4 4 0 0 0 4-4V4"></path><path d="M18 8l2 2-2 2"></path><path d="M18 16l2 2-2 2"></path></svg>路径地图</button>
+        <button data-section="opportunities"><svg class="icon" viewBox="0 0 24 24"><path d="M10 20v-6h4v6"></path><path d="M3 10 12 3l9 7"></path><path d="M5 10v10h14V10"></path></svg>治疗机会</button>
+        <button data-section="family"><svg class="icon" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-8 0v2"></path><circle cx="12" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>家属协作</button>
+      </nav>
+      <div class="sidebar-note">
+        愈径只做资料整理、证据检索和沟通辅助，不替代医生诊断、治疗或用药决定。
+      </div>
+    </aside>
+
+    <main>
+      <div class="topbar">
+        <div class="patient-head">
+          <p class="eyebrow">癌症病历时间线与治疗机会导航</p>
+          <h2 id="patientTitle">肺腺癌 IV 期 · EGFR 19del · 靶向治疗中</h2>
+          <p>把散落的病理、影像、NGS、用药和复诊记录整理成一页医生能快速读懂的摘要，并生成下一次就诊的问题清单。</p>
+        </div>
+        <div class="actions">
+          <button class="btn" id="sampleBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg>载入示例</button>
+          <button class="btn subtle" id="saveBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><path d="M17 21v-8H7v8"></path><path d="M7 3v5h8"></path></svg>本地保存</button>
+          <button class="btn subtle" id="exportBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>导出 JSON</button>
+          <button class="btn subtle" id="importBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 21V9"></path><path d="m7 14 5-5 5 5"></path><path d="M5 3h14"></path></svg>导入 JSON</button>
+          <button class="btn primary" id="printBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><path d="M6 14h12v8H6z"></path></svg>导出给医生</button>
+          <input class="file-input" id="importFile" type="file" accept="application/json,.json">
+        </div>
+      </div>
+      <div class="notice">开源本地版不会上传病历。粘贴、保存、导入和导出的数据都在你的浏览器或本地文件中完成。</div>
+      <div class="status-line" id="statusLine"></div>
+
+      <section id="overview" class="section active">
+        <div class="stats">
+          <div class="stat"><span>资料完整度</span><strong id="completeness">78%</strong></div>
+          <div class="stat"><span>关键待确认</span><strong id="missingCount">4 项</strong></div>
+          <div class="stat"><span>可讨论机会</span><strong id="oppCount">6 个</strong></div>
+          <div class="stat"><span>复诊问题</span><strong id="questionCount">8 条</strong></div>
+        </div>
+
+        <div class="grid">
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <h3>导入病历资料</h3>
+                <small>当前原型支持粘贴报告文本，后续可接 PDF/OCR/微信文件。</small>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="upload">
+                <div class="form-row">
+                  <label>癌种
+                    <select id="cancerType">
+                      <option>肺腺癌</option>
+                      <option>乳腺癌</option>
+                      <option>结直肠癌</option>
+                      <option>胃癌</option>
+                      <option>胰腺癌</option>
+                      <option>其他实体瘤</option>
+                    </select>
+                  </label>
+                  <label>分期
+                    <select id="stage">
+                      <option>IV 期</option>
+                      <option>III 期</option>
+                      <option>II 期</option>
+                      <option>I 期</option>
+                      <option>待确认</option>
+                    </select>
+                  </label>
+                  <label>城市
+                    <input id="city" value="上海">
+                  </label>
+                </div>
+                <label>报告内容
+                  <textarea id="recordText"></textarea>
+                </label>
+                <button class="btn primary" id="analyzeBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3v3"></path><path d="M12 18v3"></path><path d="M3 12h3"></path><path d="M18 12h3"></path><path d="m5.6 5.6 2.1 2.1"></path><path d="m16.3 16.3 2.1 2.1"></path><path d="m18.4 5.6-2.1 2.1"></path><path d="m7.7 16.3-2.1 2.1"></path><circle cx="12" cy="12" r="3"></circle></svg>生成时间线与问题清单</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h3>医生版一页摘要</h3>
+              <small>用于复诊、二诊、试验预筛</small>
+            </div>
+            <div class="panel-body">
+              <div class="summary" id="summary"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top:18px">
+          <div class="panel-head">
+            <h3>治疗时间线</h3>
+            <small>按诊断、检查、治疗、疗效、待办整理</small>
+          </div>
+          <div class="panel-body">
+            <div class="timeline" id="timeline"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="visit" class="section">
+        <div class="grid">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>复诊前问题清单</h3>
+              <small>让 7 分钟门诊更高效</small>
+            </div>
+            <div class="panel-body">
+              <div class="question-list" id="questions"></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h3>材料补齐清单</h3>
+              <small>缺资料会影响二诊和试验预筛</small>
+            </div>
+            <div class="panel-body">
+              <div class="task-list" id="missingTasks"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="pathway" class="section">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>抗癌路径分叉地图</h3>
+              <small>把当前状态拆成可与医生讨论的下一步路径，不替代医生决定。</small>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="path-map">
+              <div class="path-current" id="pathCurrent"></div>
+              <div class="path-list" id="pathBranches"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="opportunities" class="section">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>治疗机会导航</h3>
+              <small>按可达性、证据相关性、资料缺口排序，最终需医生确认。</small>
+            </div>
+            <div class="tabs" role="tablist">
+              <button class="active" data-filter="all">全部</button>
+              <button data-filter="trial">试验</button>
+              <button data-filter="drug">药物证据</button>
+              <button data-filter="access">申请路径</button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="opportunity-list" id="opportunitiesList"></div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top:18px">
+          <div class="panel-head">
+            <h3>证据源</h3>
+            <small>真实产品中会接入实时数据接口</small>
+          </div>
+          <div class="panel-body">
+            <div class="source-strip">
+              <div class="source"><strong>ClinicalTrials.gov</strong><span>全球临床试验登记与招募状态，用于 NCT、入排标准和研究中心检索。</span></div>
+              <div class="source"><strong>药品标签</strong><span>FDA / NMPA / EMA 公开批准信息、适应症和安全性说明。</span></div>
+              <div class="source"><strong>肿瘤知识库</strong><span>OncoKB、CIViC 等突变证据库，用于标注证据等级。</span></div>
+              <div class="source"><strong>指南与文献</strong><span>NCCN、CSCO、PubMed 摘要与关键研究，用于解释治疗路径。</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="family" class="section">
+        <div class="grid">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>家属协作任务</h3>
+              <small>把焦虑拆成能分工的动作</small>
+            </div>
+            <div class="panel-body">
+              <div class="task-list" id="familyTasks"></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h3>给医生/PI 的咨询稿</h3>
+              <small>可复制到微信、邮件或挂号备注</small>
+            </div>
+            <div class="panel-body">
+              <div class="print-area" id="doctorLetter"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const sampleText = `2025-08 病理：右肺上叶肺腺癌，免疫组化 TTF-1(+)，NapsinA(+)。
+2025-09 分期：胸部 CT 提示右肺上叶占位，纵隔淋巴结，骨扫描提示多发骨转移，临床 IV 期。
+2025-09 NGS：EGFR exon19 deletion，TP53 突变；ALK/ROS1/RET/NTRK 阴性；TMB 低，MSI 稳定。PD-L1 TPS 10%。
+2025-10 开始奥希替尼一线靶向治疗。
+2026-01 复查 CT：肺部病灶缩小约 42%，骨痛缓解，CEA 从 86 降至 24。
+2026-05 复查 CT：原发灶稳定，肝脏出现 1.2cm 新发低密度灶，CEA 升至 39，需判断是否寡进展或耐药。
+当前问题：是否需要肝脏增强 MRI 或 PET-CT，是否需要 ctDNA 复查耐药突变，是否有 EGFR 耐药相关临床试验。`;
+
+    const state = {
+      biomarkers: [],
+      missing: [],
+      opportunities: [],
+      pathways: [],
+      questions: [],
+      events: []
+    };
+
+    const $ = (selector) => document.querySelector(selector);
+    const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+    const STORAGE_KEY = "carepath-open-source-case";
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function setStatus(message) {
+      $("#statusLine").textContent = message;
+      if (message) {
+        window.setTimeout(() => {
+          if ($("#statusLine").textContent === message) $("#statusLine").textContent = "";
+        }, 3200);
+      }
+    }
+
+    function detectBiomarkers(text) {
+      const patterns = [
+        ["EGFR 19del", /EGFR|19del|exon19|19 deletion/i],
+        ["TP53", /TP53/i],
+        ["ALK 阴性", /ALK.*阴性|ALK negative/i],
+        ["ROS1 阴性", /ROS1.*阴性|ROS1 negative/i],
+        ["RET 阴性", /RET.*阴性|RET negative/i],
+        ["MSI 稳定", /MSI.*稳定|MSS|MSI stable/i],
+        ["TMB 低", /TMB.*低|TMB low/i],
+        ["PD-L1 10%", /PD-L1|PDL1/i],
+        ["CEA 升高", /CEA/i]
+      ];
+      return patterns.filter(([, pattern]) => pattern.test(text)).map(([name]) => name);
+    }
+
+    function buildMissing(text) {
+      const missing = [];
+      if (!/PD-L1|PDL1/i.test(text)) missing.push(["补充 PD-L1", "若后续考虑免疫治疗或试验筛选，PD-L1 状态常被要求。"]);
+      if (!/MSI|MSS|微卫星/i.test(text)) missing.push(["补充 MSI/MMR", "确认是否存在免疫治疗相关的泛癌种证据。"]);
+      if (!/TMB/i.test(text)) missing.push(["确认 TMB", "部分免疫治疗或篮子试验会使用 TMB 作为筛选条件。"]);
+      if (!/ctDNA|耐药|T790M|C797S|MET/i.test(text)) missing.push(["复查耐药机制", "进展时可与医生讨论 ctDNA 或组织活检，关注 EGFR、MET 等耐药机制。"]);
+      if (!/增强|MRI|PET/i.test(text)) missing.push(["确认新发病灶性质", "新发肝/骨/脑病灶常需要增强影像帮助判断。"]);
+      return missing;
+    }
+
+    function buildEvents(text) {
+      const lines = text.split(/\n+/).map(line => line.trim()).filter(Boolean);
+      const fallback = [
+        ["2025-08", "初始诊断", "病理提示肺腺癌，建议补齐完整病理号、取材部位和免疫组化。", ["病理"]],
+        ["2025-09", "分期评估", "影像提示晚期/转移可能，后续治疗应围绕全身治疗和症状控制。", ["分期", "影像"]],
+        ["2025-10", "系统治疗", "已开始一线治疗，需持续记录疗效、毒副作用和停药原因。", ["用药"]],
+        ["2026-05", "疗效复盘", "如出现新病灶或指标上升，应与医生讨论是否进展及是否复查耐药。", ["复查", "待确认"]]
+      ];
+
+      if (lines.length < 3) return fallback;
+      return lines.slice(0, 7).map((line, index) => {
+        const dateMatch = line.match(/(20\d{2}[-/.年]\d{1,2}|20\d{2})/);
+        const date = dateMatch ? dateMatch[1].replace("年", "-").replace(/[/.]/g, "-") : `节点 ${index + 1}`;
+        let title = "病情记录";
+        if (/病理|确诊|免疫组化/.test(line)) title = "病理诊断";
+        if (/分期|转移|CT|MRI|PET|影像/.test(line)) title = "影像与分期";
+        if (/NGS|EGFR|ALK|KRAS|突变|基因/.test(line)) title = "基因检测";
+        if (/治疗|用药|奥希替尼|化疗|免疫/.test(line)) title = "治疗方案";
+        if (/复查|缩小|稳定|升至|进展|新发/.test(line)) title = "疗效复盘";
+        const tags = [];
+        if (/EGFR|ALK|KRAS|NGS|突变/.test(line)) tags.push("分子标志物");
+        if (/CT|MRI|PET|病灶|转移/.test(line)) tags.push("影像");
+        if (/治疗|用药|奥希替尼|化疗/.test(line)) tags.push("治疗");
+        if (/需|是否|问题|建议|待/.test(line)) tags.push("待确认");
+        return [date, title, line.replace(dateMatch ? dateMatch[0] : "", "").trim(), tags.length ? tags : ["记录"]];
+      });
+    }
+
+    function buildOpportunities(cancerType, biomarkers, city) {
+      const hasEGFR = biomarkers.some(item => item.includes("EGFR"));
+      const hasPDL1 = biomarkers.some(item => item.includes("PD-L1"));
+      const list = [
+        {
+          type: "trial",
+          score: hasEGFR ? 86 : 66,
+          title: "EGFR 靶向治疗后进展相关临床试验预筛",
+          desc: hasEGFR
+            ? `已识别 EGFR 19del，若影像确认进展，可重点检索 ${city} 及周边 EGFR 耐药、MET 扩增、双抗/ADC 相关研究。`
+            : "需先确认驱动基因状态，再判断是否适合靶向耐药方向研究。"
+        },
+        {
+          type: "drug",
+          score: 78,
+          title: "寡进展处理路径讨论",
+          desc: "若仅肝脏单个新发灶，可与医生讨论增强影像确认后，是否存在局部治疗 + 继续原靶向药的可能性。"
+        },
+        {
+          type: "trial",
+          score: 74,
+          title: "泛实体瘤篮子试验检索",
+          desc: "按 NTRK、RET、MET、HER2、BRAF、MSI-H、TMB-H 等标志物进行二次检索，适合资料补齐后自动刷新。"
+        },
+        {
+          type: "drug",
+          score: hasPDL1 ? 64 : 52,
+          title: "免疫治疗证据复核",
+          desc: "EGFR 突变肺癌免疫治疗获益通常需要谨慎评估，可把 PD-L1、TMB、既往治疗线数带给医生讨论。"
+        },
+        {
+          type: "access",
+          score: 58,
+          title: "二诊/MDT 材料包",
+          desc: "当前资料可生成一页摘要、影像变化表、NGS 摘要和问题清单，用于三甲医院二诊或线上专家咨询。"
+        },
+        {
+          type: "access",
+          score: 46,
+          title: "扩展用药/同情用药资料准备",
+          desc: "如标准治疗和临床试验均不可及，可整理英文病情摘要和医生申请信草稿，但需由主治医生和合法渠道推进。"
+        }
+      ];
+      return list;
+    }
+
+    function buildQuestions(biomarkers, missing) {
+      const questions = [
+        ["这次 CT 是否已经达到疾病进展标准？", "请医生明确是稳定、寡进展，还是全身进展。"],
+        ["新发肝脏病灶是否需要增强 MRI / PET-CT 确认？", "避免仅凭普通 CT 做重大治疗切换。"],
+        ["是否建议做 ctDNA 或组织活检寻找耐药机制？", "尤其关注 EGFR C797S、MET 扩增、HER2、BRAF 等。"],
+        ["如果只是寡进展，能否局部处理后继续当前药？", "帮助判断是否必须立刻换全身治疗。"],
+        ["目前是否有适合的临床试验？", "请医生基于癌种、突变、治疗线数和身体状态预筛。"],
+        ["下一次复查的时间和指标是什么？", "明确 CT/MRI、肿瘤标志物、肝肾功能等。"]
+      ];
+      missing.slice(0, 3).forEach(([title, desc]) => questions.push([title + "是否必要？", desc]));
+      return questions;
+    }
+
+    function buildPathway(cancerType, biomarkers, text, missing) {
+      const hasEGFR = biomarkers.some(item => item.includes("EGFR"));
+      const hasProgressSignal = /新发|进展|升至|增大|耐药|PD|复发/.test(text);
+      const hasResponseSignal = /缩小|缓解|下降|PR|部分缓解/.test(text);
+      const current = hasProgressSignal
+        ? "当前需要确认是否进展、寡进展或耐药"
+        : hasResponseSignal
+          ? "当前重点是确认疗效维持与复查节奏"
+          : "当前重点是补齐资料并确认治疗阶段";
+
+      const branches = [
+        {
+          tone: "stable",
+          title: "如果影像仍稳定",
+          desc: "与医生确认是否继续当前治疗，并明确下次复查时间、影像项目和肿瘤标志物观察指标。",
+          tags: ["继续观察", "复查节奏", "需医生确认"]
+        },
+        {
+          tone: "warning",
+          title: "如果只是单个或少数病灶进展",
+          desc: "与医生讨论是否属于寡进展，是否需要增强影像确认，以及局部治疗后继续原方案是否有讨论价值。",
+          tags: ["寡进展", "局部治疗讨论", "影像确认"]
+        },
+        {
+          tone: "action",
+          title: "如果确认多处进展",
+          desc: "优先补齐耐药机制证据，带着既往治疗线数、NGS、影像变化表去讨论下一线标准治疗和临床试验预筛。",
+          tags: ["耐药复查", "下一线治疗", "临床试验"]
+        },
+        {
+          tone: "action",
+          title: hasEGFR ? "EGFR 突变相关追问" : "驱动基因相关追问",
+          desc: hasEGFR
+            ? "可与医生讨论 ctDNA 或组织活检是否必要，重点确认 EGFR C797S、MET 扩增等常见耐药线索是否需要检测。"
+            : "如果驱动基因状态不完整，先确认是否需要补做更完整的 NGS、融合检测或免疫相关指标。",
+          tags: hasEGFR ? ["EGFR", "ctDNA", "耐药机制"] : ["NGS", "补充检测", "资料缺口"]
+        }
+      ];
+
+      if (missing.length) {
+        branches.push({
+          tone: "warning",
+          title: "资料不足时先补齐关键证据",
+          desc: `当前至少有 ${missing.length} 项资料缺口。先补齐这些资料，能提高二诊和临床试验预筛效率。`,
+          tags: ["材料补齐", "二诊准备", "预筛准备"]
+        });
+      }
+
+      return { current: `${cancerType}：${current}`, branches };
+    }
+
+    function renderTags(tags) {
+      return tags.map(tag => {
+        const cls = /待|需|确认/.test(tag) ? "tag amber" : /影像|分子/.test(tag) ? "tag blue" : "tag";
+        return `<span class="${cls}">${escapeHtml(tag)}</span>`;
+      }).join("");
+    }
+
+    function analyze() {
+      const cancerType = $("#cancerType").value;
+      const stage = $("#stage").value;
+      const city = $("#city").value || "本地";
+      const text = $("#recordText").value.trim() || sampleText;
+      const biomarkers = detectBiomarkers(text);
+      const missing = buildMissing(text);
+      const events = buildEvents(text);
+      const opportunities = buildOpportunities(cancerType, biomarkers, city);
+      const questions = buildQuestions(biomarkers, missing);
+      const pathway = buildPathway(cancerType, biomarkers, text, missing);
+
+      state.biomarkers = biomarkers;
+      state.missing = missing;
+      state.opportunities = opportunities;
+      state.pathways = pathway.branches;
+      state.questions = questions;
+      state.events = events;
+
+      $("#patientTitle").textContent = `${cancerType} ${stage} · ${biomarkers.slice(0, 2).join(" · ") || "关键标志物待补齐"}`;
+      $("#completeness").textContent = `${Math.max(44, 94 - missing.length * 8)}%`;
+      $("#missingCount").textContent = `${missing.length} 项`;
+      $("#oppCount").textContent = `${opportunities.length} 个`;
+      $("#questionCount").textContent = `${questions.length} 条`;
+
+      $("#summary").innerHTML = `
+        <div class="summary-block"><h4>核心病情</h4><p>${cancerType}，${stage}。已导入 ${events.length} 个关键节点，建议复诊时重点确认疗效状态和后续检测计划。</p></div>
+        <div class="summary-block"><h4>分子标志物</h4><div class="tag-row">${renderTags(biomarkers.length ? biomarkers : ["待补齐 NGS/免疫指标"])}</div></div>
+        <div class="summary-block"><h4>当前重点</h4><p>${missing.length ? missing[0][1] : "资料较完整，可进入临床试验与二诊材料准备。"}</p></div>
+      `;
+
+      $("#timeline").innerHTML = events.map(([date, title, desc, tags]) => `
+        <article class="event">
+          <div class="date">${escapeHtml(date)}</div>
+          <div>
+            <h4>${escapeHtml(title)}</h4>
+            <p>${escapeHtml(desc)}</p>
+            <div class="tag-row">${renderTags(tags)}</div>
+          </div>
+        </article>
+      `).join("");
+
+      $("#questions").innerHTML = questions.map(([title, desc]) => `
+        <div class="question"><div class="check"></div><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(desc)}</span></div></div>
+      `).join("");
+
+      $("#missingTasks").innerHTML = missing.map(([title, desc]) => `
+        <div class="task"><div class="check"></div><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(desc)}</span></div></div>
+      `).join("") || `<div class="task"><div class="check"></div><div><strong>资料暂时完整</strong><span>可以进入二诊摘要和临床试验预筛。</span></div></div>`;
+
+      renderPathway(pathway);
+      renderOpportunities("all");
+      renderFamilyTasks(cancerType, stage, city);
+      renderLetter(cancerType, stage, biomarkers, questions);
+    }
+
+    function renderPathway(pathway) {
+      $("#pathCurrent").innerHTML = `
+        <h4>当前路径节点</h4>
+        <p>${escapeHtml(pathway.current)}</p>
+        <div class="tag-row"><span class="tag">本地规则演示</span><span class="tag amber">需医生确认</span></div>
+      `;
+      $("#pathBranches").innerHTML = pathway.branches.map(branch => `
+        <article class="path-card ${escapeHtml(branch.tone)}">
+          <h4>${escapeHtml(branch.title)}</h4>
+          <p>${escapeHtml(branch.desc)}</p>
+          <div class="tag-row">${renderTags(branch.tags)}</div>
+        </article>
+      `).join("");
+    }
+
+    function renderOpportunities(filter) {
+      const visible = state.opportunities.filter(item => filter === "all" || item.type === filter);
+      $("#opportunitiesList").innerHTML = visible.map(item => `
+        <article class="opportunity" data-type="${item.type}">
+          <div class="opportunity-top">
+            <h4>${escapeHtml(item.title)}</h4>
+            <span class="score">${escapeHtml(item.score)}</span>
+          </div>
+          <p>${escapeHtml(item.desc)}</p>
+          <div class="tag-row">
+            <span class="tag ${item.type === "trial" ? "blue" : item.type === "access" ? "amber" : ""}">${item.type === "trial" ? "临床试验" : item.type === "drug" ? "药物证据" : "申请路径"}</span>
+            <span class="tag">需医生确认</span>
+          </div>
+        </article>
+      `).join("");
+    }
+
+    function renderFamilyTasks(cancerType, stage, city) {
+      const tasks = [
+        ["病历管理员", "把病理、出院小结、NGS、影像报告按日期上传，文件名统一为“日期-类型”。"],
+        ["复诊记录员", "陪诊时记录医生对进展、检查、换药、试验的原话和下一步时间点。"],
+        ["试验联系人", `优先联系 ${city} 周边研究中心，确认是否仍在招募、是否接受外院报告。`],
+        ["费用与报销", "整理医保、商保、慈善援助、临床试验交通补贴等信息。"],
+        ["副作用观察", "每周记录皮疹、腹泻、乏力、疼痛、体重和体温，异常时及时联系医生。"]
+      ];
+      $("#familyTasks").innerHTML = tasks.map(([title, desc]) => `
+        <div class="task"><div class="check"></div><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(desc)}</span></div></div>
+      `).join("");
+    }
+
+    function renderLetter(cancerType, stage, biomarkers, questions) {
+      $("#doctorLetter").textContent = `医生您好：
+
+患者目前诊断为${cancerType}，${stage}。已整理病理、影像、基因检测和既往治疗记录，希望请您帮助判断当前疗效状态和下一步检查/治疗路径。
+
+已知关键标志物：${biomarkers.join("，") || "待补齐"}。
+
+本次想重点请教：
+${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\n")}
+
+我们理解最终诊疗决定需由医生结合完整病历、影像原片和身体状态判断。此摘要仅用于提高沟通效率。`;
+    }
+
+    function getCaseData() {
+      return {
+        app: "CarePath Open Source",
+        version: "0.2.0",
+        savedAt: new Date().toISOString(),
+        cancerType: $("#cancerType").value,
+        stage: $("#stage").value,
+        city: $("#city").value,
+        recordText: $("#recordText").value,
+        derived: {
+          biomarkers: state.biomarkers,
+          missing: state.missing,
+          opportunities: state.opportunities,
+          pathways: state.pathways,
+          questions: state.questions,
+          events: state.events
+        }
+      };
+    }
+
+    function applyCaseData(data) {
+      if (!data || typeof data !== "object") throw new Error("病例文件格式不正确");
+      $("#cancerType").value = data.cancerType || "肺腺癌";
+      $("#stage").value = data.stage || "IV 期";
+      $("#city").value = data.city || "";
+      $("#recordText").value = data.recordText || "";
+      analyze();
+    }
+
+    function saveLocalCase() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(getCaseData()));
+      setStatus("已保存到浏览器本地存储。数据没有上传。");
+    }
+
+    function loadLocalCase() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return false;
+      applyCaseData(JSON.parse(raw));
+      setStatus("已载入浏览器本地保存的病例。");
+      return true;
+    }
+
+    function exportCase() {
+      const data = JSON.stringify(getCaseData(), null, 2);
+      const blob = new Blob([data], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const date = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `carepath-case-${date}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setStatus("已导出 JSON 文件。");
+    }
+
+    function importCase(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          applyCaseData(JSON.parse(reader.result));
+          setStatus("已从 JSON 文件导入病例。");
+        } catch (error) {
+          setStatus("导入失败：JSON 文件无法识别。");
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    $$(".nav button").forEach(button => {
+      button.addEventListener("click", () => {
+        $$(".nav button").forEach(item => item.classList.remove("active"));
+        $$(".section").forEach(item => item.classList.remove("active"));
+        button.classList.add("active");
+        $("#" + button.dataset.section).classList.add("active");
+      });
+    });
+
+    $$(".tabs button").forEach(button => {
+      button.addEventListener("click", () => {
+        $$(".tabs button").forEach(item => item.classList.remove("active"));
+        button.classList.add("active");
+        renderOpportunities(button.dataset.filter);
+      });
+    });
+
+    $("#sampleBtn").addEventListener("click", () => {
+      $("#recordText").value = sampleText;
+      analyze();
+      setStatus("已载入示例病例。");
+    });
+
+    $("#analyzeBtn").addEventListener("click", analyze);
+    $("#saveBtn").addEventListener("click", saveLocalCase);
+    $("#exportBtn").addEventListener("click", exportCase);
+    $("#importBtn").addEventListener("click", () => $("#importFile").click());
+    $("#importFile").addEventListener("change", (event) => {
+      importCase(event.target.files[0]);
+      event.target.value = "";
+    });
+    $("#printBtn").addEventListener("click", () => window.print());
+
+    if (!loadLocalCase()) {
+      $("#recordText").value = sampleText;
+      analyze();
+    }
+  </script>
+</body>
+</html>
