@@ -1700,6 +1700,12 @@ JSON 结构：
 - 绝不推荐具体药物、剂量或方案，不下诊断结论
 - 不确定的内容明说不确定，不编造`;
 
+    const TRIAL_EXPLAIN_SYSTEM = `你是临床试验信息翻译助手，任务是把英文试验信息翻译并通俗化，帮助中国患者家属理解。
+严格遵守：
+- 只输出 JSON：{"title_zh":"试验标题的中文翻译","summary_zh":"这项试验在研究什么，2-3句通俗解释（研究什么药/方法、针对什么人群、处于什么阶段）","criteria_zh":["主要入组和排除条件的中文要点，每条以【入组】或【排除】开头，挑最关键的，最多6条"],"note":"给家属的一句实用提醒（如联系前要准备什么材料），可空字符串"}
+- 忠实翻译，不夸大，不使用"有效""救命""机会"等诱导性词汇
+- 绝不判断患者是否能入组，绝不催促患者报名`;
+
     const TERM_SYSTEM = `你是医学术语翻译助手，任务是把术语解释成癌症患者家属能听懂的大白话。
 严格遵守：
 - 只输出 JSON：{"explain":"2-4句通俗解释，可用生活化比喻","ask":"如果这个概念和患者自身情况有关，建议问医生的一个问题；无关则空字符串"}
@@ -1758,6 +1764,7 @@ JSON 结构：
           "protocolSection.designModule.phases",
           "protocolSection.statusModule.lastUpdatePostDateStruct",
           "protocolSection.eligibilityModule.eligibilityCriteria",
+          "protocolSection.descriptionModule.briefSummary",
           "protocolSection.contactsLocationsModule.locations"
         ].join(",")
       });
@@ -1810,7 +1817,9 @@ JSON 结构：
           localMatch: !!(userCityEn && locations.some(site => new RegExp(userCityEn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(site.city || ""))),
           userCity,
           criteria: proto.eligibilityModule?.eligibilityCriteria || "",
-          screening: null
+          briefSummary: proto.descriptionModule?.briefSummary || "",
+          screening: null,
+          explain: null
         };
       });
     }
@@ -1843,12 +1852,53 @@ JSON 结构：
             <h4><a href="https://clinicaltrials.gov/study/${encodeURIComponent(item.nct)}" target="_blank" rel="noopener">${escapeHtml(item.nct)}</a> · ${escapeHtml(item.title)}</h4>
           </div>
           <p>${escapeHtml(item.phases)} · 招募中 · 研究中心 ${item.locationCount} 个${item.cnCount ? `，中国 ${item.cnCount} 个（${escapeHtml(item.cnCities)}）` : "，未列出中国中心"}${item.lastUpdate ? ` · 信息更新于 ${escapeHtml(item.lastUpdate)}` : ""}</p>
+          ${explainTrialHtml(item, index)}
           ${screeningHtml(item, index)}
           <div class="tag-row"><span class="tag blue">ClinicalTrials.gov 实时数据</span>${item.localMatch ? `<span class="tag">你所在城市（${escapeHtml(item.userCity)}）有研究中心</span>` : ""}<span class="tag">需医生确认</span></div>
         </article>`).join("")
         + `<p class="trial-hint" style="margin-top:10px">已显示 ${items.length} / 共 ${state.trialMeta.total} 项${state.trialMeta.nextPageToken
             ? `<button class="btn subtle" id="loadMoreTrialsBtn" type="button" style="margin:0 6px"${state.trialMeta.loadingMore ? " disabled" : ""}>${state.trialMeta.loadingMore ? "加载中……" : "加载更多"}</button>`
             : "（已全部显示）"}<a href="${state.trialMeta.webUrl}" target="_blank" rel="noopener" style="margin-left:6px">在网站查看</a>。${aiEnabled() ? `<button class="btn subtle" id="screenAllBtn" type="button" style="margin:0 6px">AI 初筛已显示的全部</button>` : ""}检索结果与初筛仅用于和医生讨论，不构成入组判断。</p>`;
+    }
+
+    function explainTrialHtml(item, index) {
+      if (!aiEnabled()) return "";
+      const e = item.explain;
+      if (!e) {
+        return `<p style="margin-top:8px"><button class="btn subtle" type="button" data-explain-idx="${index}">AI 中文解读</button></p>`;
+      }
+      if (e.loading) return `<p class="trial-hint" style="margin-top:8px">中文解读生成中……</p>`;
+      if (e.error) return `<p class="trial-hint" style="margin-top:8px">解读失败（${escapeHtml(e.error)}）<button class="btn subtle" type="button" data-explain-idx="${index}" style="margin-left:6px">重试</button></p>`;
+      return `<div style="margin-top:8px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#fbfcfd">
+        <p><strong>${escapeHtml(e.title_zh)}</strong></p>
+        <p style="margin-top:6px">${escapeHtml(e.summary_zh)}</p>
+        ${e.criteria_zh?.length ? `<ul style="margin-top:6px">${e.criteria_zh.map(c => `<li style="margin-top:3px">${escapeHtml(c)}</li>`).join("")}</ul>` : ""}
+        ${e.note ? `<p class="trial-hint" style="margin-top:6px">${escapeHtml(e.note)}</p>` : ""}
+        <p class="trial-hint" style="margin-top:6px">AI 翻译解读，可能有偏差，关键条件请以试验原文和研究中心答复为准。</p>
+      </div>`;
+    }
+
+    async function aiExplainTrial(index) {
+      const item = state.trialResults?.[index];
+      if (!item || item.explain?.loading) return;
+      item.explain = { loading: true };
+      renderTrialResults();
+      try {
+        const parsed = await aiJson([
+          { role: "system", content: TRIAL_EXPLAIN_SYSTEM },
+          { role: "user", content: `试验编号：${item.nct}\n标题：${item.title}\n简介：${(item.briefSummary || "未提供").slice(0, 3000)}\n入排标准：${(item.criteria || "未提供").slice(0, 5000)}` }
+        ]);
+        if (!parsed.title_zh || !parsed.summary_zh) throw new Error("返回结构不完整");
+        item.explain = {
+          title_zh: String(parsed.title_zh),
+          summary_zh: String(parsed.summary_zh),
+          criteria_zh: (parsed.criteria_zh || []).map(String),
+          note: String(parsed.note || "")
+        };
+      } catch (error) {
+        item.explain = { error: error.message };
+      }
+      renderTrialResults();
     }
 
     function screeningHtml(item, index) {
@@ -2514,6 +2564,11 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
       const screenBtn = event.target.closest("[data-screen-idx]");
       if (screenBtn) {
         aiScreenTrial(Number(screenBtn.dataset.screenIdx));
+        return;
+      }
+      const explainBtn = event.target.closest("[data-explain-idx]");
+      if (explainBtn) {
+        aiExplainTrial(Number(explainBtn.dataset.explainIdx));
         return;
       }
       if (event.target.closest("#screenAllBtn")) {
