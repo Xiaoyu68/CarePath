@@ -1170,8 +1170,8 @@
         <div class="panel">
           <div class="panel-head">
             <div>
-              <h3>可与医生讨论的方向（本地演示）</h3>
-              <small>开源版评分为本地规则演示值，不是真实试验匹配结果，仅用于整理讨论方向，最终需医生确认。</small>
+              <h3>可与医生讨论的方向</h3>
+              <small id="oppHint">本地规则演示值，仅用于整理讨论方向，最终需医生确认。</small>
             </div>
             <div class="tabs" role="tablist">
               <button class="active" data-filter="all">全部</button>
@@ -1214,6 +1214,7 @@
                 <input id="familyTaskTitle" placeholder="新任务，例如：周四取 CT 报告">
                 <input id="familyTaskOwner" placeholder="负责人（选填）" style="flex:0 1 150px">
                 <button class="btn" id="familyTaskAdd">添加任务</button>
+                <button class="btn subtle" id="familyAiBtn" type="button">AI 任务建议</button>
                 <button class="btn subtle" id="familyTaskReset">载入默认分工</button>
               </div>
             </div>
@@ -1618,8 +1619,18 @@ JSON 结构：
  "hasResponseSignal": true或false,
  "hasNewLesion": true或false,
  "newLesionSite": "如 肝脏，无则空字符串",
- "missingTests": [{"title":"建议补齐的检查或资料","desc":"为什么需要，给医生确认"}]
-}`;
+ "missingTests": [{"title":"建议补齐的检查或资料","desc":"为什么需要，给医生确认"}],
+ "questions": [{"q":"复诊时给医生确认的问题","why":"为什么要问，1句"}],
+ "branches": [{"tone":"stable|warning|action","title":"如果……（情景假设开头）","desc":"这种情况下该和医生确认什么、可能需要什么检查，2-3句","tags":["2-4个关键词"]}],
+ "directions": [{"type":"trial|drug|access","priority":"优先讨论|可讨论|备选","title":"可与医生讨论的方向","desc":"具体到这份病历的说明，2句内"}],
+ "tasks": [{"title":"家属分工任务","desc":"具体怎么做，1-2句"}],
+ "letter": "给主治医生的简短咨询信正文"
+}
+questions 要求：6-9 条按重要性排序；每条必须针对这份病历的具体情况（引用具体病灶、指标、用药），禁止泛泛的科普性问题；必须是请医生判断的问法，不能引导患者自行决定。
+branches 要求：3-5 条，覆盖好转/稳定/进展等不同情景；只描述"需要确认什么"，绝不给治疗决定；tone 取 stable（稳定/好转）、warning（待确认/波动）、action（进展/需行动）。
+directions 要求：4-6 条；type 含义 trial=临床试验方向、drug=药物证据复核、access=申请路径或材料准备；只写"可与医生讨论什么、需要补什么证据"，不写"建议使用某药"。
+tasks 要求：3-5 条针对这份病历的具体待办（如预约某项检查、整理某类报告、联系研究中心要带什么），不要泛泛的角色分工。
+letter 要求：150-250 字，礼貌客观；一句病情概述 + 最想请医生确认的 3-4 个问题；不要求开药，不写治疗建议。`;
 
     function loadAiConfig() {
       try {
@@ -2044,9 +2055,50 @@ JSON 结构：
             Array.isArray(event.tags) && event.tags.length ? event.tags.map(String) : ["记录"]
           ])
         : buildEvents(text);
-      const opportunities = buildOpportunities(cancerType, biomarkers, city, profile);
-      const questions = buildQuestions(biomarkers, missing, profile);
+      let opportunities = buildOpportunities(cancerType, biomarkers, city, profile);
+      state.oppFromAI = false;
+      if (ai?.directions?.length) {
+        const typeOk = { trial: "trial", drug: "drug", access: "access" };
+        const priorityScore = { "优先讨论": 90, "可讨论": 70, "备选": 50 };
+        const mapped = ai.directions.map(direction => ({
+          type: typeOk[direction.type] || "drug",
+          score: priorityScore[direction.priority] ?? 70,
+          title: String(direction.title || ""),
+          desc: String(direction.desc || "")
+        })).filter(direction => direction.title && direction.desc);
+        if (mapped.length) {
+          opportunities = mapped;
+          state.oppFromAI = true;
+        }
+      }
+      state.aiTaskSuggestions = ai?.tasks?.length
+        ? ai.tasks.map(task => ({ title: String(task.title || ""), desc: String(task.desc || "") })).filter(task => task.title)
+        : [];
+      state.aiLetter = ai?.letter ? String(ai.letter) : null;
+      const questions = ai?.questions?.length
+        ? ai.questions.map(item => [String(item.q || ""), String(item.why || "")]).filter(([title]) => title)
+        : buildQuestions(biomarkers, missing, profile);
       const pathway = buildPathway(cancerType, biomarkers, text, missing, profile);
+      if (ai?.branches?.length) {
+        const tones = { stable: "stable", warning: "warning", action: "action" };
+        const aiBranches = ai.branches.map(branch => ({
+          tone: tones[branch.tone] || "stable",
+          title: String(branch.title || ""),
+          desc: String(branch.desc || ""),
+          tags: Array.isArray(branch.tags) && branch.tags.length ? branch.tags.map(String).slice(0, 4) : ["需医生确认"]
+        })).filter(branch => branch.title && branch.desc);
+        if (aiBranches.length) {
+          pathway.branches = aiBranches;
+          if (missing.length) {
+            pathway.branches.push({
+              tone: "warning",
+              title: "资料不足时先补齐关键证据",
+              desc: `当前至少有 ${missing.length} 项资料缺口。先补齐这些资料，能提高二诊和临床试验预筛效率。`,
+              tags: ["材料补齐", "二诊准备", "预筛准备"]
+            });
+          }
+        }
+      }
 
       state.biomarkers = biomarkers;
       state.profile = profile;
@@ -2221,7 +2273,7 @@ JSON 结构：
       $("#pathCurrent").innerHTML = `
         <h4>当前路径节点</h4>
         <p>${escapeHtml(pathway.current)}</p>
-        <div class="tag-row"><span class="tag">本地规则演示</span><span class="tag amber">需医生确认</span></div>
+        <div class="tag-row"><span class="tag ${state.usedAI ? "blue" : ""}">${state.usedAI ? "AI 根据病历生成" : "本地规则演示"}</span><span class="tag amber">需医生确认</span></div>
       `;
       $("#pathBranches").innerHTML = pathway.branches.map(branch => `
         <article class="path-card ${escapeHtml(branch.tone)}">
@@ -2233,6 +2285,12 @@ JSON 结构：
     }
 
     function renderOpportunities(filter) {
+      const hint = $("#oppHint");
+      if (hint) {
+        hint.textContent = state.oppFromAI
+          ? "AI 根据病历生成的讨论方向，优先级仅供整理材料参考，不是真实匹配结果，最终需医生确认。"
+          : "本地规则演示值，仅用于整理讨论方向，最终需医生确认。";
+      }
       const visible = state.opportunities
         .filter(item => filter === "all" || item.type === filter)
         .slice()
@@ -2404,6 +2462,12 @@ JSON 结构：
     }
 
     function renderLetter(cancerType, stage, biomarkers, questions, profile) {
+      if (state.aiLetter) {
+        $("#doctorLetter").textContent = `${state.aiLetter}
+
+我们理解最终诊疗决定需由医生结合完整病历、影像原片和身体状态判断。此摘要仅用于提高沟通效率。（本稿由 AI 根据病历资料起草，发送前请核对事实）`;
+        return;
+      }
       $("#doctorLetter").textContent = `医生您好：
 
 患者目前诊断为${cancerType}，${stage}。已整理病理、影像、基因检测和既往治疗记录，希望请您帮助判断当前疗效状态和下一步检查/治疗路径。
@@ -2706,6 +2770,24 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
       renderFamilyTasks();
       persistCase();
       setStatus("已添加任务并保存到本地。");
+    });
+
+    $("#familyAiBtn").addEventListener("click", () => {
+      const suggestions = state.aiTaskSuggestions || [];
+      if (!suggestions.length) {
+        setStatus("先配置 AI 并在总览页点“生成时间线与问题清单”，才能得到针对病历的任务建议。");
+        return;
+      }
+      let added = 0;
+      suggestions.forEach(suggestion => {
+        if (!state.familyTasks.some(task => task.title === suggestion.title)) {
+          state.familyTasks.push({ title: suggestion.title, desc: suggestion.desc, owner: "", done: false });
+          added++;
+        }
+      });
+      renderFamilyTasks();
+      persistCase();
+      setStatus(added ? `已添加 ${added} 条 AI 建议任务，可指定负责人。` : "AI 建议的任务已都在列表中。");
     });
 
     $("#familyTaskReset").addEventListener("click", () => {
