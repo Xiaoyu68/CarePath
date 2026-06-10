@@ -1006,7 +1006,7 @@
           <input class="file-input" id="importFile" type="file" accept="application/json,.json">
         </div>
       </div>
-      <div class="notice">开源本地版不会上传病历。粘贴、保存、导入和导出的数据都在你的浏览器或本地文件中完成（AI 功能为可选，使用时资料会发给所选 AI 服务商）。本站仅统计匿名的功能使用次数，不含任何病历内容。</div>
+      <div class="notice">开源本地版不会上传病历。粘贴、保存、导入和导出的数据都在你的浏览器或本地文件中完成（AI 功能为可选，使用时资料会发给所选 AI 服务商）。本站仅统计匿名的功能使用次数（含一个随机访客编号，与你的身份无关），不含任何病历内容。</div>
       <div class="status-line" id="statusLine"></div>
 
       <section id="overview" class="section active">
@@ -1348,11 +1348,20 @@
         .replace(/'/g, "&#039;");
     }
 
+    function visitorId() {
+      let vid = localStorage.getItem("carepath-vid");
+      if (!vid) {
+        vid = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2, 10));
+        localStorage.setItem("carepath-vid", vid);
+      }
+      return vid;
+    }
+
     function track(event) {
-      // 匿名功能计数：只发事件名，不含任何病历内容或身份信息；本地 file:// 打开时不发送
+      // 匿名功能计数：只发事件名 + 随机访客编号（与身份无关），不含任何病历内容；本地 file:// 打开时不发送
       try {
         if (!/^https?:/.test(location.protocol)) return;
-        const url = "/api/ping?e=" + encodeURIComponent(event);
+        const url = "/api/ping?e=" + encodeURIComponent(event) + "&v=" + encodeURIComponent(visitorId());
         if (navigator.sendBeacon) navigator.sendBeacon(url);
         else fetch(url, { method: "POST", keepalive: true }).catch(() => {});
       } catch {}
