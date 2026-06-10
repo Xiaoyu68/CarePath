@@ -35,7 +35,7 @@ export async function onRequest({ request, env }) {
   if (ALLOWED_EVENTS.has(event)) {
     console.log(JSON.stringify({ "carepath-event": event, day, v: vid.slice(0, 40) }));
 
-    const kv = env.CAREPATH_KV;
+    const kv = (typeof CAREPATH_KV !== "undefined") ? CAREPATH_KV : env.CAREPATH_KV;
     if (kv && /^[a-z0-9-]{8,40}$/i.test(vid)) {
       try {
         await kvIncrement(kv, `evt:${day}:${event}`);
