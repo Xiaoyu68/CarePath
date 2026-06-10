@@ -10,16 +10,22 @@ const EVENTS = [
 ];
 const DAYS = 14;
 
+function plain(text, status) {
+  return new Response(text, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+}
+
 export async function onRequest({ request, env }) {
+  const kvStatus = env.CAREPATH_KV ? "已绑定 ✓" : "未绑定 ✗（控制台创建 KV 命名空间 → 以变量名 CAREPATH_KV 绑定本项目 → 重新部署）";
   if (!env.STATS_KEY) {
-    return new Response("未配置：请在 EdgeOne 环境变量里设置 STATS_KEY（查看口令）。", { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    return plain(`未配置 STATS_KEY 环境变量（设置后需重新部署）。\nKV 状态：${kvStatus}`, 503);
   }
   const url = new URL(request.url);
-  if (url.searchParams.get("key") !== env.STATS_KEY) {
-    return new Response("口令错误", { status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  const given = url.searchParams.get("key") || "";
+  if (given !== env.STATS_KEY) {
+    return plain(`口令错误。\n诊断：STATS_KEY 已配置（长度 ${env.STATS_KEY.length}，你输入的长度 ${given.length}）；KV 状态：${kvStatus}\n常见原因：① 口令值首尾有空格；② 口令里含 & # ? 空格等符号，会破坏网址（建议改成纯字母数字后重新部署）；③ 改过环境变量后没有重新部署。`, 403);
   }
   if (!env.CAREPATH_KV) {
-    return new Response("未绑定 KV：请在控制台创建 KV 命名空间并以变量名 CAREPATH_KV 绑定到本项目，数据才会开始累计。", { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    return plain(`口令正确，但 KV 状态：${kvStatus}。绑定后数据才会开始累计。`, 503);
   }
 
   const days = [];
