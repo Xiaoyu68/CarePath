@@ -124,6 +124,49 @@
       flex: 0 0 auto;
     }
 
+    .support-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(16, 24, 32, .55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      padding: 20px;
+    }
+
+    .support-overlay.open {
+      display: flex;
+    }
+
+    .support-card {
+      background: #fff;
+      border-radius: 10px;
+      max-width: 460px;
+      width: 100%;
+      padding: 22px;
+      box-shadow: var(--shadow);
+    }
+
+    .support-card h3 {
+      margin: 0 0 10px;
+      font-size: 17px;
+    }
+
+    .support-card p {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .support-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+
     .sidebar-note {
       margin-top: auto;
       padding: 14px;
@@ -959,6 +1002,7 @@
           <button class="btn subtle" id="exportBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>导出 JSON</button>
           <button class="btn subtle" id="importBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 21V9"></path><path d="m7 14 5-5 5 5"></path><path d="M5 3h14"></path></svg>导入 JSON</button>
           <button class="btn primary" id="printBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><path d="M6 14h12v8H6z"></path></svg>导出给医生</button>
+          <button class="btn" id="supportBtn" style="display:none"><svg class="icon" viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>支持本站</button>
           <input class="file-input" id="importFile" type="file" accept="application/json,.json">
         </div>
       </div>
@@ -1247,6 +1291,19 @@
   </div>
 
   <section class="print-report" id="doctorReport" aria-label="医生版一页纸"></section>
+
+  <div class="support-overlay" id="supportOverlay">
+    <div class="support-card">
+      <h3>支持愈径继续免费</h3>
+      <p>愈径的所有功能——包括 AI 病历解析、试验检索和解读——对每位患者家庭<strong>永久免费</strong>，不收费承诺任何疗效，也不替代医生诊疗。</p>
+      <p>但 AI 调用和服务器是有真实成本的（一次完整解析约 5 分钱，由站长自费承担）。如果这个工具帮到了你，愿意的话可以支持一点成本：<strong>¥10 约能支持 200 次解析</strong>，帮到下一个深夜查资料的家庭。</p>
+      <p>经济困难的家庭请放心免费使用，这正是这个项目存在的原因。</p>
+      <div class="support-actions">
+        <a class="btn primary" id="supportLink" href="#" target="_blank" rel="noopener">去支持一下</a>
+        <button class="btn subtle" id="supportClose" type="button">关闭</button>
+      </div>
+    </div>
+  </div>
 
   <script>
     const sampleText = `2025-08 病理：右肺上叶肺腺癌，免疫组化 TTF-1(+)，NapsinA(+)。
@@ -1592,6 +1649,9 @@
 
       return { current: `${cancerType}：${current}`, branches };
     }
+
+    // 站长配置：填入你的收款页链接（爱发电/Ko-fi/Buy Me a Coffee 等），留空则不显示“支持本站”按钮
+    const SUPPORT_LINK = "";
 
     const AI_STORAGE_KEY = "carepath-ai-config";
     const AI_PRESETS = {
@@ -2804,6 +2864,16 @@ ${questions.slice(0, 6).map((item, index) => `${index + 1}. ${item[0]}`).join("\
       event.target.value = "";
     });
     $("#printBtn").addEventListener("click", () => window.print());
+
+    if (SUPPORT_LINK) {
+      $("#supportBtn").style.display = "";
+      $("#supportLink").href = SUPPORT_LINK;
+      $("#supportBtn").addEventListener("click", () => $("#supportOverlay").classList.add("open"));
+      $("#supportClose").addEventListener("click", () => $("#supportOverlay").classList.remove("open"));
+      $("#supportOverlay").addEventListener("click", (event) => {
+        if (event.target === $("#supportOverlay")) $("#supportOverlay").classList.remove("open");
+      });
+    }
 
     loadAiConfig();
     {
