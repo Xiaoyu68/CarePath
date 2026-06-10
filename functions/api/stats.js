@@ -8,7 +8,8 @@ const EVENTS = [
   ["bilingual", "双语摘要"], ["tasks_ai", "AI 任务"], ["letter_print", "打印导出"],
   ["case_save", "保存"], ["case_export", "导出JSON"]
 ];
-const DAYS = 14;
+const DEFAULT_DAYS = 14;
+const MAX_DAYS = 90;
 
 function plain(text, status) {
   return new Response(text, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
@@ -35,30 +36,31 @@ export async function onRequest({ request, env }) {
     return plain(`口令正确，但 KV 状态：${kvStatus}。绑定后数据才会开始累计。`, 503);
   }
 
+  const daysWanted = Math.min(MAX_DAYS, Math.max(1, parseInt(url.searchParams.get("days"), 10) || DEFAULT_DAYS));
   const days = [];
-  for (let i = 0; i < DAYS; i++) {
+  for (let i = 0; i < daysWanted; i++) {
     days.push(new Date(Date.now() - i * 86400000).toISOString().slice(0, 10));
   }
 
-  const rows = [];
-  for (const day of days) {
-    const uv = parseInt(await kv.get(`uv:${day}`), 10) || 0;
-    const counts = [];
-    for (const [key] of EVENTS) {
-      counts.push(parseInt(await kv.get(`evt:${day}:${key}`), 10) || 0);
-    }
-    if (uv || counts.some(c => c)) rows.push({ day, uv, counts });
-  }
+  const rows = (await Promise.all(days.map(async day => {
+    const [uvRaw, ...countRaws] = await Promise.all([
+      kv.get(`uv:${day}`),
+      ...EVENTS.map(([key]) => kv.get(`evt:${day}:${key}`))
+    ]);
+    const uv = parseInt(uvRaw, 10) || 0;
+    const counts = countRaws.map(raw => parseInt(raw, 10) || 0);
+    return (uv || counts.some(c => c)) ? { day, uv, counts } : null;
+  }))).filter(Boolean);
 
   const head = EVENTS.map(([, label]) => `<th>${label}</th>`).join("");
   const body = rows.map(r =>
     `<tr><td>${r.day}</td><td><b>${r.uv}</b></td>${r.counts.map(c => `<td>${c || ""}</td>`).join("")}</tr>`
-  ).join("") || `<tr><td colspan="${EVENTS.length + 2}">最近 ${DAYS} 天暂无数据（KV 绑定后才开始累计）</td></tr>`;
+  ).join("") || `<tr><td colspan="${EVENTS.length + 2}">最近 ${daysWanted} 天暂无数据（KV 绑定后才开始累计）</td></tr>`;
 
   const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>愈径使用统计</title>
 <style>body{font-family:system-ui,"PingFang SC","Microsoft YaHei",sans-serif;padding:24px;color:#18212f}table{border-collapse:collapse;font-size:13px}th,td{border:1px solid #d9e0ea;padding:6px 10px;text-align:center}th{background:#f5f7fa;white-space:nowrap}td:first-child{white-space:nowrap}h1{font-size:18px}p{color:#647084;font-size:13px}</style></head>
-<body><h1>愈径 CarePath · 最近 ${DAYS} 天使用统计</h1>
-<p>独立访客按匿名随机编号去重；所有数据不含病历内容和身份信息。</p>
+<body><h1>愈径 CarePath · 最近 ${daysWanted} 天使用统计</h1>
+<p>独立访客按匿名随机编号去重；所有数据不含病历内容和身份信息。数据按天永久保存，网址加 &amp;days=30 可调显示范围（最多 90 天）。</p>
 <table><tr><th>日期</th><th>独立访客</th>${head}</tr>${body}</table></body></html>`;
 
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
