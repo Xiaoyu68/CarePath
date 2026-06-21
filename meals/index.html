@@ -101,6 +101,30 @@
   .foot { text-align: center; color: var(--muted); font-size: 12px; margin-top: 30px; }
   .foot a { color: var(--muted); }
 
+  /* 账号条 */
+  .auth-bar { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+  .auth-bar .who { color: var(--ink); font-weight: 600; }
+  .auth-bar .cloud { color: var(--green); font-size: 12px; }
+  .auth-bar button { font: inherit; font-size: 13px; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 8px; padding: 5px 12px; cursor: pointer; }
+  .auth-bar button.solid { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+  .auth-bar button:hover { filter: brightness(.98); }
+
+  /* 模态框 */
+  .overlay { position: fixed; inset: 0; background: rgba(24,33,47,.45); display: none; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+  .overlay.open { display: flex; }
+  .modal { background: #fff; border-radius: 14px; box-shadow: var(--shadow); width: 100%; max-width: 360px; padding: 22px; }
+  .modal h3 { margin: 0 0 4px; font-size: 18px; }
+  .modal p.tip { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+  .modal .field { margin-bottom: 12px; }
+  .modal .msg { font-size: 13px; min-height: 18px; margin: 4px 0 12px; }
+  .modal .msg.err { color: var(--danger); }
+  .modal .msg.ok { color: var(--green); }
+  .modal .row { display: flex; gap: 10px; }
+  .modal .row .btn { flex: 1; }
+  .modal .switch { text-align: center; margin-top: 14px; font-size: 13px; color: var(--muted); }
+  .modal .switch a { color: var(--accent); cursor: pointer; font-weight: 600; }
+  .modal .close { float: right; border: 0; background: transparent; font-size: 20px; color: var(--muted); cursor: pointer; line-height: 1; }
+
   @media print {
     body { background: #fff; }
     .no-print { display: none !important; }
@@ -113,6 +137,7 @@
 <div class="wrap">
   <header class="top">
     <div class="logo">FitMeal <span>· 每周健身餐</span></div>
+    <span class="auth-bar no-print" id="authBar"></span>
     <a class="home-link" href="/">← 回主站</a>
   </header>
   <h1>AI 每周健身餐与买菜清单</h1>
@@ -226,11 +251,139 @@
   </p>
 </div>
 
+<!-- 登录/注册模态框 -->
+<div class="overlay no-print" id="authOverlay">
+  <div class="modal">
+    <button class="close" id="authClose" aria-label="关闭">×</button>
+    <h3 id="authTitle">登录</h3>
+    <p class="tip" id="authTip">登录后，你生成的菜单会存到云端，换手机、换浏览器也能看到。</p>
+    <div class="field">
+      <label>用户名 <span class="hint">3-20 位字母/数字/下划线</span></label>
+      <input id="authUser" autocomplete="username" placeholder="给自己起个名字" />
+    </div>
+    <div class="field">
+      <label>密码 <span class="hint">至少 6 位</span></label>
+      <input id="authPass" type="password" autocomplete="current-password" placeholder="••••••" />
+    </div>
+    <div class="msg" id="authMsg"></div>
+    <div class="row">
+      <button class="btn primary" id="authSubmit">登录</button>
+    </div>
+    <div class="switch" id="authSwitch">还没有账号？<a id="authToggle">注册一个</a></div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const STORE_KEY = "fitmeal_v1";
+
+/* ===================== 账号 + 云端存储 ===================== */
+let user = null;          // 当前登录用户名，未登录为 null
+let currentPlan = null;   // 当前展示的菜单，供云端保存使用
+let cloudSaveTimer = null;
+
+async function account(action, payload) {
+  const res = await fetch("/api/account", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, ...(payload || {}) }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+  return data;
+}
+
+async function cloudLoad() {
+  const res = await fetch("/api/meals-data");
+  if (res.status === 401) { user = null; return null; }
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
+}
+
+function cloudSave(plan, checks) {
+  if (!user || !plan) return;
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = setTimeout(() => {
+    fetch("/api/meals-data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan, checks }),
+    }).catch(() => {});
+  }, 400);
+}
+
+function renderAuthBar() {
+  const bar = $("#authBar");
+  if (user) {
+    bar.innerHTML = `<span class="who">👤 ${esc(user)}</span><span class="cloud">☁️ 云端已开</span><button id="logoutBtn">退出</button>`;
+    $("#logoutBtn").addEventListener("click", async () => {
+      try { await account("logout"); } catch {}
+      user = null;
+      renderAuthBar();
+    });
+  } else {
+    bar.innerHTML = `<button class="solid" id="loginBtn">登录 / 注册</button>`;
+    $("#loginBtn").addEventListener("click", () => openAuth("login"));
+  }
+}
+
+/* ---------- 模态框 ---------- */
+let authMode = "login";
+function openAuth(modeWanted) {
+  authMode = modeWanted || "login";
+  applyAuthMode();
+  $("#authMsg").textContent = "";
+  $("#authMsg").className = "msg";
+  $("#authOverlay").classList.add("open");
+  $("#authUser").focus();
+}
+function closeAuth() { $("#authOverlay").classList.remove("open"); }
+function applyAuthMode() {
+  const reg = authMode === "register";
+  $("#authTitle").textContent = reg ? "注册" : "登录";
+  $("#authSubmit").textContent = reg ? "注册并登录" : "登录";
+  $("#authSwitch").innerHTML = reg
+    ? `已有账号？<a id="authToggle">去登录</a>`
+    : `还没有账号？<a id="authToggle">注册一个</a>`;
+  $("#authToggle").addEventListener("click", () => { authMode = reg ? "login" : "register"; applyAuthMode(); $("#authMsg").textContent = ""; });
+}
+async function submitAuth() {
+  const username = $("#authUser").value.trim();
+  const password = $("#authPass").value;
+  const msg = $("#authMsg");
+  msg.className = "msg";
+  msg.textContent = "处理中……";
+  $("#authSubmit").disabled = true;
+  try {
+    const data = await account(authMode, { username, password });
+    user = data.user;
+    msg.className = "msg ok";
+    msg.textContent = authMode === "register" ? "注册成功，已登录" : "登录成功";
+    renderAuthBar();
+    // 登录后：把云端菜单取回来；没有云端但本地有，就把本地的推上去
+    const cloud = await cloudLoad();
+    if (cloud && cloud.plan) {
+      saveStore({ plan: cloud.plan, checks: cloud.checks || {} });
+      render(cloud.plan, cloud.checks || {});
+    } else {
+      const local = loadStore();
+      if (local && local.plan) cloudSave(local.plan, local.checks || {});
+    }
+    setTimeout(closeAuth, 500);
+  } catch (err) {
+    msg.className = "msg err";
+    msg.textContent = err.message;
+  } finally {
+    $("#authSubmit").disabled = false;
+  }
+}
+$("#authClose").addEventListener("click", closeAuth);
+$("#authOverlay").addEventListener("click", e => { if (e.target === $("#authOverlay")) closeAuth(); });
+$("#authSubmit").addEventListener("click", submitAuth);
+$("#authPass").addEventListener("keydown", e => { if (e.key === "Enter") submitAuth(); });
+
 
 /* ---------- 多选 chips ---------- */
 $$("#f_taste .chip").forEach(c => c.addEventListener("click", () => c.classList.toggle("on")));
@@ -327,6 +480,7 @@ function esc(s) { return String(s == null ? "" : s).replace(/[&<>]/g, m => ({ "&
 
 function render(plan, savedChecks) {
   const checks = savedChecks || {};
+  currentPlan = plan;
   const area = $("#resultArea");
   const planHtml = plan.days.map((d, di) => {
     const meals = (d.meals || []).map((m, mi) => {
@@ -385,6 +539,7 @@ function render(plan, savedChecks) {
       saved.checks = saved.checks || {};
       saved.checks[el.dataset.id] = cb.checked;
       saveStore(saved);
+      cloudSave(currentPlan, saved.checks);
     });
   });
 
@@ -409,6 +564,7 @@ async function generate(resetChecks) {
     const checks = resetChecks ? {} : (loadStore()?.checks || {});
     saveStore({ plan, checks, ts: Date.now() });
     render(plan, checks);
+    cloudSave(plan, checks);
   } catch (err) {
     $("#resultArea").innerHTML = `<div class="card"><div class="err-box">
       😖 生成失败：${esc(err.message)}<br><br>
@@ -421,18 +577,42 @@ async function generate(resetChecks) {
 $("#genBtn").addEventListener("click", () => generate(true));
 
 /* ---------- 恢复上次结果 ---------- */
-(function restore() {
+function showRestored(plan, checks, fromCloud) {
+  try {
+    render(plan, checks || {});
+    const tip = document.createElement("div");
+    tip.className = "note-box no-print";
+    tip.style.margin = "0 0 14px";
+    tip.innerHTML = fromCloud
+      ? "☁️ 这是你云端保存的菜单，换设备也能看到。想重做就改上面的条件再点生成。"
+      : "👇 下面是你上次生成的菜单（已存在本机）。登录后可同步到云端、换设备也能看。";
+    $("#resultArea").prepend(tip);
+  } catch {}
+}
+
+(async function init() {
+  renderAuthBar();
+  // 查会话：已登录优先用云端菜单，未登录回退本机
+  try {
+    const me = await account("me");
+    if (me.user) {
+      user = me.user;
+      renderAuthBar();
+      const cloud = await cloudLoad();
+      if (cloud && cloud.plan) {
+        saveStore({ plan: cloud.plan, checks: cloud.checks || {} });
+        showRestored(cloud.plan, cloud.checks || {}, true);
+        return;
+      }
+      // 云端还没有：本机若有就推上去
+      const local = loadStore();
+      if (local && local.plan) { showRestored(local.plan, local.checks, false); cloudSave(local.plan, local.checks || {}); }
+      return;
+    }
+  } catch {}
+  // 未登录：回退本机
   const saved = loadStore();
-  if (saved && saved.plan) {
-    try {
-      render(saved.plan, saved.checks || {});
-      const tip = document.createElement("div");
-      tip.className = "note-box no-print";
-      tip.style.margin = "0 0 14px";
-      tip.innerHTML = "👇 下面是你上次生成的菜单（已自动保存）。想重做就改上面的条件再点生成。";
-      $("#resultArea").prepend(tip);
-    } catch {}
-  }
+  if (saved && saved.plan) showRestored(saved.plan, saved.checks, false);
 })();
 </script>
 </body>
