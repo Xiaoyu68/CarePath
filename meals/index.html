@@ -411,7 +411,7 @@ function collectProfile() {
 function buildMessages(profile) {
   const schema = `严格只输出 JSON，结构如下（不要任何额外文字、不要 markdown 代码块）：
 {
-  "summary": "一句话说明本周餐单思路，含你对每日热量和蛋白质的大致估算，大白话",
+  "summary": "两三句话说清楚：你怎么按这个人的身高体重性别训练量算出每日热量和蛋白目标的，以及本周这么排的思路，大白话",
   "days": [
     { "day": "周一", "kcal": "约1800千卡 · 蛋白约130克",
       "meals": [
@@ -433,10 +433,10 @@ function buildMessages(profile) {
 }`;
 
   const rules = `要求：
-- 围绕用户目标（减脂/增肌/维持）安排。注意蛋白质摄入（一般每公斤体重 1.6-2.2 克；减脂偏高端、维持偏低端），在 summary 里说明你的大致估算逻辑。
-- 训练日可多安排碳水，休息日适当减少。
-- 食材常见、好买好做，份量写清楚（尽量给克数或常见单位），方便备餐(meal prep)。
-- 严格避开用户写的忌口和过敏食材。尊重口味偏好。
+- 先算账、再排餐：先根据性别、体重、身高、训练强度估出这个人的每日大致热量需求(TDEE)；再按目标调整——减脂减约 300-500 千卡、增肌加约 200-400 千卡、维持不变。蛋白质按每公斤体重 1.6-2.2 克（减脂偏高端、维持偏低端）。把这套算账逻辑用大白话写进 summary，并让每天的 kcal/蛋白和它对得上。用户若自己填了每日热量目标，以用户的为准。
+- 真按这个人来：训练日多给碳水、休息日减一点；口味偏好、预算、人数、做饭精力都要实打实体现在选材和做法上，不要给一份谁填都一样的通用模板。
+- 用户的"忌口过敏"和"补充说明"是最高优先级的硬要求，必须照办，哪怕和上面的默认做法冲突也以用户为准。特别注意：用户若说"样数少一点 / 不想买太多种菜 / 批量备餐 / 怕麻烦"，就大胆让同一道菜连吃好几顿好几天，把主菜控制在很少的几样，买菜清单按批量给总量——别硬凑成每天都不重样。没这类要求时再正常换花样、别七天顿顿一个菜。
+- 食材常见好买好做，份量写清楚（克数或常见单位），方便备餐(meal prep)。
 - 把一周所有食材合并汇总进买菜清单，同种合并、给一周总量。
 - 不做医疗承诺，不针对疾病。`;
 
@@ -453,7 +453,7 @@ async function callAI(messages) {
   const res = await fetch("/api/ai/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ temperature: 0.4, response_format: { type: "json_object" }, messages }),
+    body: JSON.stringify({ temperature: 0.8, response_format: { type: "json_object" }, messages }),
   });
   if (!res.ok) {
     let msg = "HTTP " + res.status;
